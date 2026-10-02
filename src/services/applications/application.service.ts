@@ -10,6 +10,7 @@
 //      ENROLLED -> portal account + "You're enrolled" email
 //      (see createAccountIfApplicant in student-account.service.ts).
 // =============================================================================
+import { randomBytes } from "node:crypto";
 import { prisma } from "../../config/database";
 import type { Prisma } from "../../generated/prisma/client";
 import type { Actor } from "../../types/auth.types";
@@ -130,7 +131,9 @@ export async function submitApplication(input: ApplicationInput, ipAddress: stri
       data: {
         ...fields,
         dateOfBirth: fromDateOnlyString(input.dateOfBirth),
-        referenceNumber: `TMP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        // Placeholder until we know the record number (replaced just below). Max 20 characters
+        // (the column size): "TMP-" + 12 random characters = 16.
+        referenceNumber: `TMP-${randomBytes(6).toString("hex")}`,
         privacyConsentAt: new Date(),
         ipAddress,
       },

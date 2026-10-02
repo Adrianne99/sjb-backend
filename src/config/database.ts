@@ -12,6 +12,8 @@ import { env } from "./env";
  *                                    providers with their own certificate, e.g. Aiven)
  * These are the same options the Prisma CLI understands for migrations.
  */
+const isLocalHost = (host: string) => host === "localhost" || host === "127.0.0.1";
+
 function parseDatabaseUrl(databaseUrl: string) {
   const url = new URL(databaseUrl);
   const sslaccept = url.searchParams.get("sslaccept");
@@ -27,6 +29,10 @@ function parseDatabaseUrl(databaseUrl: string) {
     // The driver gives up after 1 second by default — too short for an online
     // database (encryption + distance). Allow 10 seconds to connect.
     connectTimeout: 10_000,
+    // Online MySQL (Aiven) is strict: text that is too long for a column is an error.
+    // XAMPP cuts it short silently instead, which hides bugs. Make the local database
+    // strict too, so problems show up on your computer and in tests, not only online.
+    ...(!isLocalHost(url.hostname) ? {} : { sessionVariables: { sql_mode: "STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION" } }),
     ...(sslaccept ? { ssl: { rejectUnauthorized: sslaccept === "strict" } } : sslRequired ? { ssl: { rejectUnauthorized: false } } : {}),
   };
 }
