@@ -10,7 +10,14 @@ async function main() {
   try {
     await prisma.$queryRaw`SELECT 1`;
   } catch (error) {
-    logger.error("❌ Cannot connect to the database. Is MySQL running in XAMPP, and is DATABASE_URL correct?", error);
+    // Show the real reason (wrong password, certificate, timeout...), not only the generic error.
+    const cause = (error as { meta?: { driverAdapterError?: { cause?: unknown } } })?.meta?.driverAdapterError?.cause;
+    logger.error(
+      env.isProduction
+        ? "❌ Cannot connect to the database. Check DATABASE_URL (host, port, user, password, database name and the ?sslaccept=... option)."
+        : "❌ Cannot connect to the database. Is MySQL running in XAMPP, and is DATABASE_URL correct?",
+      cause ?? error,
+    );
     process.exit(1);
   }
 

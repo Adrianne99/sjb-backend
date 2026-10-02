@@ -6,12 +6,17 @@ import { env } from "./env";
 
 /**
  * Turns "mysql://user:pass@host:3306/db" into the adapter's settings object.
- * Hosted databases usually require TLS: add "?sslaccept=strict" to the URL
- * (the same option the Prisma CLI understands for migrations).
+ * Hosted databases usually require TLS (encryption). Add to the end of the URL:
+ *   ?sslaccept=strict                encrypted + the server certificate is checked
+ *   ?sslaccept=accept_invalid_certs  encrypted, certificate not checked (needed for
+ *                                    providers with their own certificate, e.g. Aiven)
+ * These are the same options the Prisma CLI understands for migrations.
  */
 function parseDatabaseUrl(databaseUrl: string) {
   const url = new URL(databaseUrl);
   const sslaccept = url.searchParams.get("sslaccept");
+  // Aiven-style "?ssl-mode=REQUIRED" also turns encryption on.
+  const sslRequired = (url.searchParams.get("ssl-mode") ?? url.searchParams.get("sslmode") ?? "").toUpperCase() === "REQUIRED";
   return {
     host: url.hostname,
     port: Number(url.port || 3306),
@@ -19,7 +24,10 @@ function parseDatabaseUrl(databaseUrl: string) {
     password: decodeURIComponent(url.password),
     database: url.pathname.replace(/^\//, ""),
     connectionLimit: 10,
-    ...(sslaccept ? { ssl: { rejectUnauthorized: sslaccept === "strict" } } : {}),
+    // The driver gives up after 1 second by default — too short for an online
+    // database (encryption + distance). Allow 10 seconds to connect.
+    connectTimeout: 10_000,
+    ...(sslaccept ? { ssl: { rejectUnauthorized: sslaccept === "strict" } } : sslRequired ? { ssl: { rejectUnauthorized: false } } : {}),
   };
 }
 
