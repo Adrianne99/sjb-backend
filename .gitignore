@@ -1,0 +1,16 @@
+node_modules
+dist
+coverage
+*.log
+
+# Prisma generated client (re-created by `npm run db:generate`)
+src/generated
+
+# Environment files — NEVER commit these
+.env
+.env.local
+.env.production
+.env.test
+
+# Email previews (npm run email:preview)
+email-previews

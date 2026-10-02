@@ -1,0 +1,759 @@
+// =============================================================================
+// Saint John Bosco Institute of Arts and Sciences — School Management System
+// Prisma schema (MySQL 8 / MariaDB 10.4+ via XAMPP in development)
+//
+// Conventions
+// - Prisma models use PascalCase + camelCase fields.
+// - Database tables/columns use snake_case through @@map / @map.
+// - Money uses DECIMAL(12,2). Never use floats for money.
+// - Date-only values (birthdate, payment date) use @db.Date.
+// - See DATABASE.md for the ERD explanation and business rules.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+// The connection URL lives in prisma.config.ts (Prisma 7+).
+datasource db {
+  provider = "mysql"
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum RoleName {
+  ADMIN
+  STAFF
+  STUDENT
+}
+
+enum Sex {
+  MALE
+  FEMALE
+}
+
+enum StudentStatus {
+  ACTIVE
+  GRADUATED
+  ARCHIVED
+}
+
+enum EnrollmentStatus {
+  PENDING
+  ENROLLED
+  DROPPED
+  WITHDRAWN
+  COMPLETED
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum GradeStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum GradeRemark {
+  PASSED
+  FAILED
+  INCOMPLETE
+  DROPPED
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  GCASH
+  MAYA
+  CHECK
+  OTHER
+}
+
+/**
+ * How a student pays the term's fees (see the school's "Tuition Fee Options").
+ */
+enum PaymentPlan {
+  INSTALLMENT // down payment + prelim + midterm + final
+  EARLY_BIRD // full payment 1 month before the term, less the early-bird discount
+  CASH // full payment up to the first day of classes, less the cash discount
+  SHS_NO_VOUCHER // Senior High without voucher: whole-year tuition
+  SHS_VOUCHER // Senior High with voucher: free tuition
+}
+
+enum PaymentStatus {
+  RECORDED
+  VOIDED
+}
+
+enum RequirementStatus {
+  PENDING // not yet submitted
+  SUBMITTED // received, not yet checked
+  VERIFIED // checked by the Registrar
+}
+
+/// Online pre-registration ("Enroll Now" on the website).
+enum ApplicationStatus {
+  SUBMITTED // waiting for the applicant to visit the Registrar
+  CONVERTED // turned into a student record + enrollment
+  REJECTED
+}
+
+enum ApplicantType {
+  NEW // incoming Grade 11 or 1st year
+  TRANSFEREE // from another school
+  RETURNING // former Saint John Bosco student
+}
+
+enum AnnouncementStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum AnnouncementAudience {
+  PUBLIC // landing page + student portal
+  STUDENTS // student portal only
+}
+
+// -----------------------------------------------------------------------------
+// Accounts, authentication and authorization
+// -----------------------------------------------------------------------------
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        RoleName @unique
+  description String?  @db.VarChar(255)
+
+  users User[]
+
+  @@map("roles")
+}
+
+model User {
+  id                    Int       @id @default(autoincrement())
+  username              String    @unique @db.VarChar(50)
+  email                 String?   @unique @db.VarChar(191)
+  passwordHash          String    @map("password_hash") @db.VarChar(255)
+  roleId                Int       @map("role_id")
+  isActive              Boolean   @default(true) @map("is_active")
+  mustChangePassword    Boolean   @default(false) @map("must_change_password")
+  failedLoginAttempts   Int       @default(0) @map("failed_login_attempts")
+  lockedUntil           DateTime? @map("locked_until")
+  lastLoginAt           DateTime? @map("last_login_at")
+  passwordChangedAt     DateTime? @map("password_changed_at")
+  notifyAnnouncements   Boolean   @default(true) @map("notify_announcements")
+  notifyAccountActivity Boolean   @default(true) @map("notify_account_activity")
+  /// Emails about enrollment, payments and published grades (students).
+  notifySchoolRecords   Boolean   @default(true) @map("notify_school_records")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  role                Role                 @relation(fields: [roleId], references: [id])
+  staffProfile        StaffProfile?
+  student             Student?
+  sessions            Session[]
+  passwordResetTokens PasswordResetToken[]
+  auditLogs           AuditLog[]
+
+  // Back-references for "who did it" columns on other tables
+  enrollmentsCreated   Enrollment[]         @relation("EnrollmentCreatedBy")
+  gradesEncoded        Grade[]              @relation("GradeEncodedBy")
+  gradesPublished      Grade[]              @relation("GradePublishedBy")
+  assessmentsCreated   TuitionAssessment[]  @relation("AssessmentCreatedBy")
+  paymentsRecorded     Payment[]            @relation("PaymentRecordedBy")
+  paymentsVoided       Payment[]            @relation("PaymentVoidedBy")
+  announcementsCreated Announcement[]       @relation("AnnouncementCreatedBy")
+  requirementsUpdated  StudentRequirement[] @relation("RequirementUpdatedBy")
+  extraSubjectsAdded   EnrollmentSubject[]  @relation("EnrollmentSubjectCreatedBy")
+  settingsUpdated      SystemSetting[]      @relation("SettingUpdatedBy")
+  applicationsReviewed Application[]        @relation("ApplicationReviewedBy")
+
+  @@index([roleId])
+  @@map("users")
+}
+
+// Names for ADMIN / STAFF accounts. Student names live on the students table.
+model StaffProfile {
+  userId    Int     @id @map("user_id")
+  firstName String  @map("first_name") @db.VarChar(100)
+  lastName  String  @map("last_name") @db.VarChar(100)
+  position  String? @db.VarChar(100)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("staff_profiles")
+}
+
+// Server-side login sessions. The browser only holds a random token in an
+// HTTP-only cookie; we store an HMAC hash of it, never the token itself.
+model Session {
+  id         Int      @id @default(autoincrement())
+  tokenHash  String   @unique @map("token_hash") @db.Char(64)
+  csrfToken  String   @map("csrf_token") @db.VarChar(64)
+  userId     Int      @map("user_id")
+  expiresAt  DateTime @map("expires_at")
+  lastSeenAt DateTime @default(now()) @map("last_seen_at")
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  userAgent  String?  @map("user_agent") @db.VarChar(255)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  tokenHash String    @unique @map("token_hash") @db.Char(64)
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// -----------------------------------------------------------------------------
+// Students
+// -----------------------------------------------------------------------------
+
+model Student {
+  id            Int           @id @default(autoincrement())
+  studentNumber String        @unique @map("student_number") @db.VarChar(20)
+  userId        Int?          @unique @map("user_id")
+  firstName     String        @map("first_name") @db.VarChar(100)
+  middleName    String?       @map("middle_name") @db.VarChar(100)
+  lastName      String        @map("last_name") @db.VarChar(100)
+  suffix        String?       @db.VarChar(20)
+  dateOfBirth   DateTime      @map("date_of_birth") @db.Date
+  sex           Sex
+  programId     Int           @map("program_id") // current program
+  status        StudentStatus @default(ACTIVE)
+  archivedAt    DateTime?     @map("archived_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  user         User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  program      Program              @relation(fields: [programId], references: [id])
+  profile      StudentProfile?
+  enrollments  Enrollment[]
+  requirements StudentRequirement[]
+  application  Application?
+
+  @@index([lastName, firstName])
+  @@index([programId])
+  @@index([status])
+  @@map("students")
+}
+
+// Contact / address / guardian details (one-to-one with students).
+model StudentProfile {
+  studentId             Int      @id @map("student_id")
+  email                 String?  @db.VarChar(191)
+  contactNumber         String?  @map("contact_number") @db.VarChar(30)
+  addressLine           String?  @map("address_line") @db.VarChar(255)
+  barangay              String?  @db.VarChar(100)
+  city                  String?  @db.VarChar(100)
+  province              String?  @db.VarChar(100)
+  zipCode               String?  @map("zip_code") @db.VarChar(10)
+  guardianName          String?  @map("guardian_name") @db.VarChar(150)
+  guardianRelationship  String?  @map("guardian_relationship") @db.VarChar(50)
+  guardianContactNumber String?  @map("guardian_contact_number") @db.VarChar(30)
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@map("student_profiles")
+}
+
+// -----------------------------------------------------------------------------
+// Admission requirements (Form 137, Diploma, Report Card / Form 138, Good Moral)
+// The list of documents is data, so the Registrar can change it without code.
+// A missing student_requirements row simply means "PENDING".
+// -----------------------------------------------------------------------------
+
+model RequirementType {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique @db.VarChar(30)
+  name        String   @db.VarChar(150)
+  description String?  @db.VarChar(500)
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  studentRequirements StudentRequirement[]
+
+  @@map("requirement_types")
+}
+
+model StudentRequirement {
+  id                Int               @id @default(autoincrement())
+  studentId         Int               @map("student_id")
+  requirementTypeId Int               @map("requirement_type_id")
+  status            RequirementStatus @default(PENDING)
+  submittedDate     DateTime?         @map("submitted_date") @db.Date
+  remarks           String?           @db.VarChar(255)
+  updatedById       Int?              @map("updated_by_id")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  student         Student         @relation(fields: [studentId], references: [id])
+  requirementType RequirementType @relation(fields: [requirementTypeId], references: [id])
+  updatedBy       User?           @relation("RequirementUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  // One status per document per student.
+  @@unique([studentId, requirementTypeId])
+  @@index([requirementTypeId, status])
+  @@map("student_requirements")
+}
+
+// -----------------------------------------------------------------------------
+// Academic structure
+// -----------------------------------------------------------------------------
+
+model Program {
+  id            Int      @id @default(autoincrement())
+  code          String   @unique @db.VarChar(20)
+  name          String   @db.VarChar(150)
+  level         String   @db.VarChar(60) // e.g. "College", "Senior High School"
+  description   String?  @db.Text
+  durationYears Int      @default(4) @map("duration_years")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  students     Student[]
+  sections     Section[]
+  enrollments  Enrollment[]
+  feeSchedules FeeSchedule[]
+  applications Application[]
+
+  @@map("programs")
+}
+
+model AcademicYear {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(20) // e.g. "2026-2027"
+  startDate DateTime @map("start_date") @db.Date
+  endDate   DateTime @map("end_date") @db.Date
+  createdAt DateTime @default(now()) @map("created_at")
+
+  semesters Semester[]
+  sections  Section[]
+
+  @@map("academic_years")
+}
+
+model Semester {
+  id             Int       @id @default(autoincrement())
+  academicYearId Int       @map("academic_year_id")
+  name           String    @db.VarChar(50) // e.g. "First Semester"
+  termNumber     Int       @map("term_number") // 1, 2, 3 (summer)
+  startDate      DateTime? @map("start_date") @db.Date
+  endDate        DateTime? @map("end_date") @db.Date
+  isCurrent      Boolean   @default(false) @map("is_current")
+
+  academicYear AcademicYear    @relation(fields: [academicYearId], references: [id])
+  enrollments  Enrollment[]
+  schedules    ClassSchedule[]
+
+  @@unique([academicYearId, termNumber])
+  @@index([isCurrent])
+  @@map("semesters")
+}
+
+model Section {
+  id             Int    @id @default(autoincrement())
+  name           String @db.VarChar(50)
+  programId      Int    @map("program_id")
+  yearLevel      Int    @map("year_level")
+  academicYearId Int    @map("academic_year_id")
+
+  program       Program             @relation(fields: [programId], references: [id])
+  academicYear  AcademicYear        @relation(fields: [academicYearId], references: [id])
+  enrollments   Enrollment[]
+  schedules     ClassSchedule[]
+  extraStudents EnrollmentSubject[]
+
+  @@unique([academicYearId, name])
+  @@index([programId, yearLevel])
+  @@map("sections")
+}
+
+model Subject {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique @db.VarChar(20)
+  name        String   @db.VarChar(150)
+  units       Decimal  @db.Decimal(4, 1)
+  description String?  @db.Text
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  schedules        ClassSchedule[]
+  grades           Grade[]
+  extraEnrollments EnrollmentSubject[]
+
+  @@map("subjects")
+}
+
+model Instructor {
+  id             Int     @id @default(autoincrement())
+  employeeNumber String  @unique @map("employee_number") @db.VarChar(20)
+  firstName      String  @map("first_name") @db.VarChar(100)
+  lastName       String  @map("last_name") @db.VarChar(100)
+  email          String? @db.VarChar(191)
+  isActive       Boolean @default(true) @map("is_active")
+
+  schedules ClassSchedule[]
+  grades    Grade[]
+
+  @@index([lastName, firstName])
+  @@map("instructors")
+}
+
+model Room {
+  id       Int     @id @default(autoincrement())
+  code     String  @unique @db.VarChar(20)
+  name     String? @db.VarChar(100)
+  capacity Int?
+  isActive Boolean @default(true) @map("is_active")
+
+  schedules ClassSchedule[]
+
+  @@map("rooms")
+}
+
+/// How a class meets. Online classes have no room.
+enum ClassMode {
+  FACE_TO_FACE
+  ONLINE
+}
+
+// One row = one weekly meeting of a subject for a section.
+// Times are "HH:MM" (24-hour) strings so they compare correctly as text.
+// Combined classes (two sections taught together) are one row per section
+// with the same subject, instructor, room, mode and time.
+model ClassSchedule {
+  id           Int       @id @default(autoincrement())
+  semesterId   Int       @map("semester_id")
+  subjectId    Int       @map("subject_id")
+  sectionId    Int       @map("section_id")
+  instructorId Int       @map("instructor_id")
+  /// Empty for ONLINE classes.
+  roomId       Int?      @map("room_id")
+  mode         ClassMode @default(FACE_TO_FACE)
+  dayOfWeek    DayOfWeek @map("day_of_week")
+  startTime    String    @map("start_time") @db.Char(5)
+  endTime      String    @map("end_time") @db.Char(5)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  semester   Semester   @relation(fields: [semesterId], references: [id])
+  subject    Subject    @relation(fields: [subjectId], references: [id])
+  section    Section    @relation(fields: [sectionId], references: [id])
+  instructor Instructor @relation(fields: [instructorId], references: [id])
+  room       Room?      @relation(fields: [roomId], references: [id])
+
+  @@index([semesterId, dayOfWeek, instructorId])
+  @@index([semesterId, dayOfWeek, roomId])
+  @@index([semesterId, dayOfWeek, sectionId])
+  @@index([subjectId])
+  @@map("class_schedules")
+}
+
+// -----------------------------------------------------------------------------
+// Enrollment, grades and finance
+// An enrollment = one student in one term. Grades, assessments and payments
+// all hang off the enrollment, so student + academic period is never repeated.
+// -----------------------------------------------------------------------------
+
+model Enrollment {
+  id             Int              @id @default(autoincrement())
+  studentId      Int              @map("student_id")
+  semesterId     Int              @map("semester_id")
+  programId      Int              @map("program_id") // program for this term
+  yearLevel      Int              @map("year_level")
+  sectionId      Int?             @map("section_id")
+  enrollmentDate DateTime         @map("enrollment_date") @db.Date
+  status         EnrollmentStatus @default(PENDING)
+  remarks        String?          @db.VarChar(255)
+  // Chosen when the tuition fees are applied. feeBreakdown is a snapshot of the
+  // fee schedule used (units, rate, installments), so later price changes do
+  // not alter an existing enrollment's payment schedule.
+  paymentPlan    PaymentPlan?     @map("payment_plan")
+  feeBreakdown   Json?            @map("fee_breakdown")
+  createdById    Int?             @map("created_by_id")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  student       Student             @relation(fields: [studentId], references: [id])
+  semester      Semester            @relation(fields: [semesterId], references: [id])
+  program       Program             @relation(fields: [programId], references: [id])
+  section       Section?            @relation(fields: [sectionId], references: [id])
+  createdBy     User?               @relation("EnrollmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  grades        Grade[]
+  assessments   TuitionAssessment[]
+  payments      Payment[]
+  extraSubjects EnrollmentSubject[]
+
+  // Business rule: one enrollment record per student per term.
+  @@unique([studentId, semesterId])
+  @@index([semesterId, status])
+  @@index([sectionId])
+  @@index([createdAt])
+  @@map("enrollments")
+}
+
+// Irregular students: subjects taken with ANOTHER section, on top of the classes
+// of the student's own section. They appear on the student's schedule and on
+// that class's grade sheet.
+model EnrollmentSubject {
+  id           Int      @id @default(autoincrement())
+  enrollmentId Int      @map("enrollment_id")
+  sectionId    Int      @map("section_id") // the section whose class the student joins
+  subjectId    Int      @map("subject_id")
+  createdById  Int?     @map("created_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  section    Section    @relation(fields: [sectionId], references: [id])
+  subject    Subject    @relation(fields: [subjectId], references: [id])
+  createdBy  User?      @relation("EnrollmentSubjectCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  // A subject is taken once per term.
+  @@unique([enrollmentId, subjectId])
+  @@index([sectionId, subjectId])
+  @@map("enrollment_subjects")
+}
+
+model Grade {
+  id            Int         @id @default(autoincrement())
+  enrollmentId  Int         @map("enrollment_id")
+  subjectId     Int         @map("subject_id")
+  instructorId  Int?        @map("instructor_id")
+  grade         Decimal?    @db.Decimal(5, 2) // null when INCOMPLETE / DROPPED
+  remark        GradeRemark
+  status        GradeStatus @default(DRAFT)
+  encodedById   Int         @map("encoded_by_id")
+  encodedAt     DateTime    @default(now()) @map("encoded_at")
+  publishedById Int?        @map("published_by_id")
+  publishedAt   DateTime?   @map("published_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  enrollment  Enrollment  @relation(fields: [enrollmentId], references: [id])
+  subject     Subject     @relation(fields: [subjectId], references: [id])
+  instructor  Instructor? @relation(fields: [instructorId], references: [id], onDelete: SetNull)
+  encodedBy   User        @relation("GradeEncodedBy", fields: [encodedById], references: [id])
+  publishedBy User?       @relation("GradePublishedBy", fields: [publishedById], references: [id], onDelete: SetNull)
+
+  @@unique([enrollmentId, subjectId])
+  @@index([subjectId])
+  @@index([status])
+  @@index([updatedAt])
+  @@map("grades")
+}
+
+// The school's tuition fee options per program and year level, e.g.
+// "1st Year IT: 23 units x 320 + 2,500 misc; down 2,000; prelim 2,870; midterm 2,870".
+// The Final payment is whatever remains of the total.
+// Senior High uses annualTuition (whole-year tuition; free with a voucher).
+model FeeSchedule {
+  id                Int      @id @default(autoincrement())
+  programId         Int      @map("program_id")
+  yearLevel         Int      @map("year_level")
+  units             Int      @default(0) // usual units per term (staff can change it per student)
+  ratePerUnit       Decimal  @default(0) @map("rate_per_unit") @db.Decimal(10, 2)
+  miscFee           Decimal  @default(0) @map("misc_fee") @db.Decimal(12, 2)
+  downPayment       Decimal  @default(0) @map("down_payment") @db.Decimal(12, 2)
+  prelimPayment     Decimal  @default(0) @map("prelim_payment") @db.Decimal(12, 2)
+  midtermPayment    Decimal  @default(0) @map("midterm_payment") @db.Decimal(12, 2)
+  earlyBirdDiscount Decimal  @default(0) @map("early_bird_discount") @db.Decimal(12, 2)
+  cashDiscount      Decimal  @default(0) @map("cash_discount") @db.Decimal(12, 2)
+  annualTuition     Decimal? @map("annual_tuition") @db.Decimal(12, 2) // Senior High only
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  program Program @relation(fields: [programId], references: [id])
+
+  @@unique([programId, yearLevel])
+  @@map("fee_schedules")
+}
+
+// Each row is one charge line (e.g. "Tuition Fee", "Laboratory Fee").
+// Discounts (early bird / cash) are stored as NEGATIVE lines.
+// Total assessment for a term = SUM(amount) for that enrollment.
+model TuitionAssessment {
+  id           Int      @id @default(autoincrement())
+  enrollmentId Int      @map("enrollment_id")
+  description  String   @db.VarChar(150)
+  amount       Decimal  @db.Decimal(12, 2)
+  createdById  Int?     @map("created_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id])
+  createdBy  User?      @relation("AssessmentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([enrollmentId])
+  @@map("tuition_assessments")
+}
+
+// Payments are never deleted. Mistakes are corrected by VOIDING (with reason).
+model Payment {
+  id              Int           @id @default(autoincrement())
+  enrollmentId    Int           @map("enrollment_id")
+  referenceNumber String        @unique @map("reference_number") @db.VarChar(50)
+  amount          Decimal       @db.Decimal(12, 2)
+  paymentDate     DateTime      @map("payment_date") @db.Date
+  paymentMethod   PaymentMethod @map("payment_method")
+  remarks         String?       @db.VarChar(255)
+  status          PaymentStatus @default(RECORDED)
+  voidReason      String?       @map("void_reason") @db.VarChar(255)
+  voidedById      Int?          @map("voided_by_id")
+  voidedAt        DateTime?     @map("voided_at")
+  recordedById    Int           @map("recorded_by_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id])
+  recordedBy User       @relation("PaymentRecordedBy", fields: [recordedById], references: [id])
+  voidedBy   User?      @relation("PaymentVoidedBy", fields: [voidedById], references: [id], onDelete: SetNull)
+
+  @@index([enrollmentId, status])
+  @@index([paymentDate])
+  @@index([status])
+  @@index([createdAt])
+  @@map("payments")
+}
+
+// -----------------------------------------------------------------------------
+// Communication, audit and configuration
+// -----------------------------------------------------------------------------
+
+// Online pre-registration submitted from the public website. The Registrar
+// reviews it when the applicant visits, then converts it into a student record
+// + PENDING enrollment (nothing is typed twice) or rejects it.
+model Application {
+  id                    Int               @id @default(autoincrement())
+  /// Given to the applicant, e.g. "APP-2026-00042".
+  referenceNumber       String            @unique @map("reference_number") @db.VarChar(20)
+  status                ApplicationStatus @default(SUBMITTED)
+  firstName             String            @map("first_name") @db.VarChar(100)
+  middleName            String?           @map("middle_name") @db.VarChar(100)
+  lastName              String            @map("last_name") @db.VarChar(100)
+  suffix                String?           @db.VarChar(20)
+  dateOfBirth           DateTime          @map("date_of_birth") @db.Date
+  sex                   Sex
+  email                 String            @db.VarChar(255)
+  contactNumber         String            @map("contact_number") @db.VarChar(30)
+  addressLine           String?           @map("address_line") @db.VarChar(255)
+  barangay              String?           @db.VarChar(100)
+  city                  String?           @db.VarChar(100)
+  province              String?           @db.VarChar(100)
+  zipCode               String?           @map("zip_code") @db.VarChar(10)
+  guardianName          String?           @map("guardian_name") @db.VarChar(150)
+  guardianRelationship  String?           @map("guardian_relationship") @db.VarChar(50)
+  guardianContactNumber String?           @map("guardian_contact_number") @db.VarChar(30)
+  programId             Int               @map("program_id")
+  yearLevel             Int               @map("year_level")
+  applicantType         ApplicantType     @map("applicant_type")
+  previousSchool        String?           @map("previous_school") @db.VarChar(200)
+  /// When the applicant agreed to the data privacy notice.
+  privacyConsentAt      DateTime          @map("privacy_consent_at")
+  ipAddress             String?           @map("ip_address") @db.VarChar(45)
+  /// Staff notes, e.g. why it was rejected.
+  remarks               String?           @db.VarChar(500)
+  reviewedById          Int?              @map("reviewed_by_id")
+  reviewedAt            DateTime?         @map("reviewed_at")
+  /// The student record created from this application.
+  studentId             Int?              @unique @map("student_id")
+  createdAt             DateTime          @default(now()) @map("created_at")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
+
+  program    Program  @relation(fields: [programId], references: [id])
+  reviewedBy User?    @relation("ApplicationReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  student    Student? @relation(fields: [studentId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([lastName, firstName])
+  @@index([email])
+  @@map("applications")
+}
+
+model Announcement {
+  id             Int                  @id @default(autoincrement())
+  title          String               @db.VarChar(200)
+  content        String               @db.Text
+  audience       AnnouncementAudience @default(PUBLIC)
+  status         AnnouncementStatus   @default(DRAFT)
+  publishDate    DateTime             @map("publish_date")
+  expirationDate DateTime?            @map("expiration_date")
+  /// When this announcement was emailed to students (each one is emailed once).
+  emailedAt      DateTime?            @map("emailed_at")
+  /// Optional cover photo (JPEG/PNG/WebP, resized in the browser before upload).
+  /// Never loaded with lists — see the "omit" setting in src/config/database.ts.
+  imageData      Bytes?               @map("image_data") @db.MediumBlob
+  imageType      String?              @map("image_type") @db.VarChar(30)
+  imageUpdatedAt DateTime?            @map("image_updated_at")
+  createdById    Int?                 @map("created_by_id")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+
+  createdBy User? @relation("AnnouncementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([status, publishDate])
+  @@map("announcements")
+}
+
+// Append-only. The API exposes no update or delete for audit logs.
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  userId      Int?     @map("user_id")
+  action      String   @db.VarChar(60)
+  entityType  String   @map("entity_type") @db.VarChar(60)
+  entityId    String?  @map("entity_id") @db.VarChar(60)
+  description String   @db.VarChar(500)
+  ipAddress   String?  @map("ip_address") @db.VarChar(45)
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+// Key/value configuration editable by admins (grading scale, editable
+// student profile fields, ...). Values are JSON and validated by the API.
+model SystemSetting {
+  key         String   @id @db.VarChar(100)
+  value       Json
+  updatedById Int?     @map("updated_by_id")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("SettingUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("system_settings")
+}
