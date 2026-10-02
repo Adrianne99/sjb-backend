@@ -91,6 +91,21 @@ describe("Tuition fees in the system", () => {
     expect(response.body.data.crossEnrollmentFee).toBe("2500.00");
   });
 
+  it("offers the same tuition fee options as a PDF file", async () => {
+    const response = await request(app)
+      .get("/api/fees/public/tuition-fees.pdf")
+      .buffer(true)
+      .parse((res, done) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => done(null, Buffer.concat(chunks)));
+      });
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toContain("application/pdf");
+    expect(response.headers["content-disposition"]).toContain("SJB-Tuition-Fee-Options.pdf");
+    expect(Buffer.from(response.body).subarray(0, 5).toString()).toBe("%PDF-");
+  });
+
   it("previews, applies (once) and schedules installment fees for an enrollment", async () => {
     const hannahId = await findStudentId(staff, "2026-0099"); // pending HRS 1st year, no fees yet
     const enrollmentId = (await staff.get(`/api/students/${hannahId}`)).body.data.currentEnrollment.id;

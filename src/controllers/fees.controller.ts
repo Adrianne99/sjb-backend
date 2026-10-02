@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import * as feeService from "../services/fees/fee.service";
+import { buildTuitionPdf, TUITION_PDF_FILENAME } from "../services/fees/tuition-pdf";
 import { getActor } from "../utils/request";
 import { sendCreated, sendSuccess } from "../utils/response";
 import { parseId, parseInput } from "../utils/validate";
@@ -8,6 +9,17 @@ import { applyFeesSchema, crossEnrollmentFeeSchema, feeScheduleSchema } from "..
 /** Public — the website's "Tuition Fee Options" table. */
 export async function listPublic(_req: Request, res: Response) {
   sendSuccess(res, await feeService.listPublicFees());
+}
+
+/** Public — the same fees as a PDF file (the website's "Tuition fee options" button). */
+export async function publicPdf(_req: Request, res: Response) {
+  const pdf = await buildTuitionPdf();
+  res
+    .type("application/pdf")
+    // "inline" = opens in the browser's PDF viewer; people can still download or print it.
+    .set("Content-Disposition", `inline; filename="${TUITION_PDF_FILENAME}"`)
+    .set("Cache-Control", "public, max-age=300")
+    .send(pdf);
 }
 
 export async function list(_req: Request, res: Response) {

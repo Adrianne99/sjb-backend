@@ -41,13 +41,15 @@ if (!parsed.success) {
 
 const raw = parsed.data;
 
+/** "https://site.app/" → "https://site.app" (browsers send the origin without the slash). */
+const withoutTrailingSlash = (url: string) => url.trim().replace(/\/+$/, "");
+
 export const env = {
   ...raw,
+  FRONTEND_URL: withoutTrailingSlash(raw.FRONTEND_URL),
   isProduction: raw.NODE_ENV === "production",
   isTest: raw.NODE_ENV === "test",
-  corsOrigins: raw.CORS_ORIGINS.split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean),
+  corsOrigins: raw.CORS_ORIGINS.split(",").map(withoutTrailingSlash).filter(Boolean),
   // Behind Render's proxy we must trust one hop so req.ip is the real client IP.
   trustProxy: raw.TRUST_PROXY ?? (raw.NODE_ENV === "production" ? 1 : 0),
 };
