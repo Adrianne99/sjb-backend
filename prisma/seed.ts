@@ -224,8 +224,8 @@ async function main() {
   const demoHash = await hashPassword(DEMO_PASSWORD);
   const registrar = await prisma.user.create({
     data: {
-      username: "registrar",
-      email: "registrar@school.test",
+      username: "maria",
+      email: "maria.santos@school.test",
       passwordHash: demoHash,
       roleId: roles.STAFF.id,
       staffProfile: { create: { firstName: "Maria", lastName: "Santos", position: "Registrar" } },
@@ -233,8 +233,8 @@ async function main() {
   });
   const cashier = await prisma.user.create({
     data: {
-      username: "cashier",
-      email: "cashier@school.test",
+      username: "jose",
+      email: "jose.reyes@school.test",
       passwordHash: demoHash,
       roleId: roles.STAFF.id,
       staffProfile: { create: { firstName: "Jose", lastName: "Reyes", position: "Accounting Staff" } },

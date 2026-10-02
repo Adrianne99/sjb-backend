@@ -6,8 +6,8 @@ export const app = createApp();
 
 export const CREDENTIALS = {
   admin: { identifier: "admin", password: process.env.SEED_ADMIN_PASSWORD! },
-  registrar: { identifier: "registrar", password: process.env.SEED_DEMO_PASSWORD! },
-  cashier: { identifier: "cashier", password: process.env.SEED_DEMO_PASSWORD! },
+  registrar: { identifier: "maria", password: process.env.SEED_DEMO_PASSWORD! },
+  cashier: { identifier: "jose", password: process.env.SEED_DEMO_PASSWORD! },
   /** Angela Reyes — password already changed, has published grade history. */
   angela: { identifier: "2025-0001", password: process.env.SEED_DEMO_PASSWORD! },
   /** Juan Dela Cruz — temporary password (birthdate 2008-01-01). */

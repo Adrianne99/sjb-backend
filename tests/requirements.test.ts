@@ -35,7 +35,7 @@ describe("Admission requirements (Form 137, Diploma, Form 138, Good Moral)", () 
     const updated = await staff.put(`/api/students/${juanId}/requirements/${form137Id}`, { status: "VERIFIED", remarks: "Original received" });
     expect(updated.status).toBe(200);
     const form137 = updated.body.data.items.find((item: { requirement: { id: number } }) => item.requirement.id === form137Id);
-    expect(form137).toMatchObject({ status: "VERIFIED", remarks: "Original received", updatedBy: "registrar" });
+    expect(form137).toMatchObject({ status: "VERIFIED", remarks: "Original received", updatedBy: "maria" });
     expect(form137.submittedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/); // defaults to today
 
     const admin = await loginAs(CREDENTIALS.admin);

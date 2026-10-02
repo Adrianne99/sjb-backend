@@ -36,7 +36,7 @@ describe("Authentication", () => {
   });
 
   it("gives the same generic error for a wrong password and an unknown user", async () => {
-    const wrongPassword = await request(app).post("/api/auth/login").send({ identifier: "registrar", password: "nope-12345" });
+    const wrongPassword = await request(app).post("/api/auth/login").send({ identifier: "maria", password: "nope-12345" });
     const unknownUser = await request(app).post("/api/auth/login").send({ identifier: "nobody", password: "nope-12345" });
     expect(wrongPassword.status).toBe(401);
     expect(unknownUser.status).toBe(401);
@@ -60,7 +60,7 @@ describe("Authentication", () => {
     const registrar = await loginAs(CREDENTIALS.registrar);
     const me = await registrar.get("/api/auth/me");
     expect(me.status).toBe(200);
-    expect(me.body.data.user.username).toBe("registrar");
+    expect(me.body.data.user.username).toBe("maria");
     expect(me.body.data.user.permissions).toContain("grades:write");
 
     const logout = await registrar.post("/api/auth/logout");
@@ -113,7 +113,7 @@ describe("Authentication", () => {
   });
 
   it("answers forgot-password the same way whether or not the account exists", async () => {
-    const known = await request(app).post("/api/auth/forgot-password").send({ identifier: "registrar" });
+    const known = await request(app).post("/api/auth/forgot-password").send({ identifier: "maria" });
     const unknown = await request(app).post("/api/auth/forgot-password").send({ identifier: "does-not-exist" });
     expect(known.status).toBe(200);
     expect(unknown.status).toBe(200);

@@ -78,7 +78,7 @@ describe("Grade management and publishing", () => {
     expect((await angela.put(`/api/grades/${gradeId}`, { grade: 1.0, reason: "x" })).status).toBe(403);
 
     const history = await staff.get(`/api/grades/${gradeId}/history`);
-    expect(history.body.data[0]).toMatchObject({ reason: "Recomputed after review", user: "registrar" });
+    expect(history.body.data[0]).toMatchObject({ reason: "Recomputed after review", user: "maria" });
 
     const audit = await admin.get("/api/audit-logs?action=GRADE_UPDATED");
     expect(audit.body.data.some((log: { description: string }) => log.description.includes("Recomputed after review"))).toBe(true);
