@@ -1,7 +1,9 @@
 // Entry point: starts the HTTP server.
 import { createApp } from "./app";
 import { prisma } from "./config/database";
+import { CHAT_CLEANUP_INTERVAL_MS } from "./config/constants";
 import { env } from "./config/env";
+import { cleanUpChatSessions } from "./services/chatbot/chat-session.service";
 import { notifyLater, sendDueAnnouncementEmails } from "./services/notifications/student-notifications.service";
 import { logger } from "./utils/logger";
 
@@ -34,10 +36,18 @@ async function main() {
   const announcementTimer = setInterval(checkAnnouncements, ANNOUNCEMENT_CHECK_MS);
   announcementTimer.unref();
 
+  // Delete ended SJB Assistant chat sessions (and their messages) once they are
+  // older than CHAT_SESSION_RETENTION_HOURS. Active chats are never touched.
+  const cleanChats = () => cleanUpChatSessions().catch((error) => logger.error("Chat session cleanup failed.", error));
+  void cleanChats();
+  const chatCleanupTimer = setInterval(cleanChats, CHAT_CLEANUP_INTERVAL_MS);
+  chatCleanupTimer.unref();
+
   // Close connections cleanly when Render/your terminal stops the process.
   const shutdown = async (signal: string) => {
     logger.info(`${signal} received — shutting down...`);
     clearInterval(announcementTimer);
+    clearInterval(chatCleanupTimer);
     server.close();
     await prisma.$disconnect();
     process.exit(0);

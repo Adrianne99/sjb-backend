@@ -24,7 +24,19 @@ export const SCHOOL_PROFILE = {
   name: "Saint John Bosco Institute of Arts and Sciences",
   shortName: "SJB",
   location: "Kalentong, Mandaluyong City, Philippines",
-  website: "This website (About, Academics, Admissions and Contact sections on the home page, and the Announcements page)",
+};
+
+/**
+ * Contact details the chatbot gives out. ✏️ Keep these the same as `contact` in
+ * frontend/src/config/school.ts (what the website's Contact section shows).
+ * SAMPLE values until the school confirms them.
+ */
+export const SCHOOL_CONTACT = {
+  address: "#55 Shaw Blvd, General Kalentong, Mandaluyong City, 1550 Metro Manila, Philippines",
+  phone: "(02) 0000-0000",
+  email: "Sjb@school.edu.ph",
+  officeHours: "Monday to Friday, 8:00 AM – 5:00 PM",
+  confirmed: false,
 };
 
 export const SCHOOL_FACTS: SchoolFact[] = [
@@ -43,15 +55,19 @@ export const SCHOOL_FACTS: SchoolFact[] = [
 
   // --- Contact & office hours ---------------------------------------------------
   {
-    topic: "Contact information",
-    details:
-      "SAMPLE: Phone (02) 0000-0000, mobile 0900 000 0000, email info@example.com. Official numbers are listed in the Contact section of this website.",
-    confirmed: false,
+    topic: "Address",
+    details: SCHOOL_CONTACT.address,
+    confirmed: SCHOOL_CONTACT.confirmed,
+  },
+  {
+    topic: "Phone and email",
+    details: `Phone ${SCHOOL_CONTACT.phone}, email ${SCHOOL_CONTACT.email}.`,
+    confirmed: SCHOOL_CONTACT.confirmed,
   },
   {
     topic: "Office hours",
-    details: "SAMPLE: Registrar's and Accounting offices are open Monday to Friday, 8:00 AM to 5:00 PM, and Saturday, 8:00 AM to 12:00 NN. Closed on Sundays and holidays.",
-    confirmed: false,
+    details: `The Registrar's and Accounting offices are open ${SCHOOL_CONTACT.officeHours}.`,
+    confirmed: SCHOOL_CONTACT.confirmed,
   },
   {
     topic: "How to get there",

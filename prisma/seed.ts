@@ -200,6 +200,8 @@ async function main() {
   const roles = {
     ADMIN: await prisma.role.findUniqueOrThrow({ where: { name: "ADMIN" } }),
     STAFF: await prisma.role.findUniqueOrThrow({ where: { name: "STAFF" } }),
+    REGISTRAR: await prisma.role.findUniqueOrThrow({ where: { name: "REGISTRAR" } }),
+    CASHIER: await prisma.role.findUniqueOrThrow({ where: { name: "CASHIER" } }),
     STUDENT: await prisma.role.findUniqueOrThrow({ where: { name: "STUDENT" } }),
   };
   await prisma.systemSetting.createMany({
@@ -238,6 +240,25 @@ async function main() {
       passwordHash: demoHash,
       roleId: roles.STAFF.id,
       staffProfile: { create: { firstName: "Jose", lastName: "Reyes", position: "Accounting Staff" } },
+    },
+  });
+  // Single-purpose office accounts (what each role may do: src/config/permissions.ts)
+  await prisma.user.create({
+    data: {
+      username: "rosa",
+      email: "rosa.cruz@school.test",
+      passwordHash: demoHash,
+      roleId: roles.REGISTRAR.id,
+      staffProfile: { create: { firstName: "Rosa", lastName: "Cruz", position: "Registrar" } },
+    },
+  });
+  await prisma.user.create({
+    data: {
+      username: "pedro",
+      email: "pedro.garcia@school.test",
+      passwordHash: demoHash,
+      roleId: roles.CASHIER.id,
+      staffProfile: { create: { firstName: "Pedro", lastName: "Garcia", position: "Cashier" } },
     },
   });
 
@@ -785,6 +806,7 @@ async function main() {
     data: [
       {
         title: "Second Semester enrollment schedule",
+        category: "ACADEMIC",
         content: "Sample announcement for development.\n\nThe enrollment schedule for the Second Semester of A.Y. 2026-2027 will be posted here by the Registrar's Office.",
         audience: "PUBLIC",
         status: "PUBLISHED",
@@ -793,6 +815,7 @@ async function main() {
       },
       {
         title: "Student Portal now available",
+        category: "ANNOUNCEMENT",
         content: "Sample announcement for development.\n\nStudents can now view their grades, class schedule and balance online. Log in with your student number; you will be asked to change your temporary password on first login.",
         audience: "PUBLIC",
         status: "PUBLISHED",
@@ -801,6 +824,7 @@ async function main() {
       },
       {
         title: "Reminder: settle your second installment",
+        category: "GENERAL",
         content: "Sample announcement for development.\n\nPlease check Balance & Payments in the Student Portal for your remaining balance. Payments are accepted at the Accounting Office.",
         audience: "STUDENTS",
         status: "PUBLISHED",
@@ -809,6 +833,7 @@ async function main() {
       },
       {
         title: "Library hours during midterm week",
+        category: "ACADEMIC",
         content: "Sample announcement for development.\n\nExtended library hours will be announced here.",
         audience: "PUBLIC",
         status: "PUBLISHED",
@@ -817,6 +842,7 @@ async function main() {
       },
       {
         title: "Foundation Day activities (draft)",
+        category: "EVENT",
         content: "Draft — not visible to the public until published.",
         audience: "PUBLIC",
         status: "DRAFT",
@@ -830,6 +856,20 @@ async function main() {
   // Sample cover photos (CC0, see seed-data/announcement-photos/CREDITS.md).
   await attachSamplePhotos(prisma);
 
+  // Demo TEACHER account, linked to the IT instructor Marco Dizon (FAC-0107),
+  // who teaches IT 1-A/1-E and IT 2-A/2-E classes this term.
+  const teacherRole = await prisma.role.findUniqueOrThrow({ where: { name: "TEACHER" } });
+  const teacher = await prisma.user.create({
+    data: {
+      username: "marco",
+      email: "marco.dizon@school.test",
+      passwordHash: demoHash,
+      roleId: teacherRole.id,
+      staffProfile: { create: { firstName: "Marco", lastName: "Dizon", position: "IT Instructor" } },
+    },
+  });
+  await prisma.instructor.update({ where: { employeeNumber: "FAC-0107" }, data: { userId: teacher.id } });
+
   // A few audit entries so the audit log screen has context on first open.
   await prisma.auditLog.createMany({
     data: [
@@ -841,7 +881,7 @@ async function main() {
   console.log(`✅ Seed complete: ${students.length} students (${accountsCreated} with portal accounts).`);
   console.log("");
   console.log("   Admin login     :", ADMIN_USERNAME, "/ (SEED_ADMIN_PASSWORD from .env)");
-  console.log("   Staff logins    : registrar, cashier / (SEED_DEMO_PASSWORD from .env)");
+  console.log("   Staff logins    : maria, jose (all-around staff), rosa (registrar), pedro (cashier), marco (teacher) / (SEED_DEMO_PASSWORD from .env)");
   console.log("   Student (temp)  : 2026-0001 / 01012008  (Juan Dela Cruz — must change password)");
   console.log("   Student (ready) : 2025-0001 / (SEED_DEMO_PASSWORD)  (Angela Reyes — IT 2nd year, irregular, has grade history)");
   console.log("   Student (SHS)   : 2025-0002 / (SEED_DEMO_PASSWORD)  (Mark Santos — Grade 12)");

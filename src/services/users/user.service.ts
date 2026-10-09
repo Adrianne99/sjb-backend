@@ -4,7 +4,8 @@
 // - Admins cannot change their own role or deactivate themselves (no lock-outs).
 // - Student accounts keep the STUDENT role; they are managed from the student record.
 // - New staff accounts get a random temporary password that must be changed.
-import { prisma } from "../../config/database";
+// - A TEACHER account is linked to exactly one instructor (instructors.user_id).
+import { prisma, type DbClient } from "../../config/database";
 import { toUserAccountDto } from "../../mappers/user.mapper";
 import * as sessionRepository from "../../repositories/session.repository";
 import * as userRepository from "../../repositories/user.repository";
@@ -25,6 +26,19 @@ export async function getUser(id: number) {
   const user = await userRepository.findUserById(id);
   if (!user) throw AppError.notFound("User not found.");
   return toUserAccountDto(user);
+}
+
+/**
+ * Links an instructor to a TEACHER account. The instructor must exist and must
+ * not already belong to another account.
+ */
+async function linkInstructor(instructorId: number, userId: number, tx: DbClient) {
+  const instructor = await tx.instructor.findUnique({ where: { id: instructorId } });
+  if (!instructor) throw AppError.validation({ instructorId: "Instructor not found." });
+  if (instructor.userId && instructor.userId !== userId) {
+    throw AppError.conflict("This instructor already has a teacher account.", { instructorId: "Already has a teacher account." });
+  }
+  await tx.instructor.update({ where: { id: instructorId }, data: { userId } });
 }
 
 export async function createStaffUser(input: CreateStaffUserInput, actor: Actor) {
@@ -51,6 +65,7 @@ export async function createStaffUser(input: CreateStaffUserInput, actor: Actor)
       },
       include: userRepository.userWithIdentityInclude,
     });
+    if (input.role === "TEACHER") await linkInstructor(input.instructorId!, created.id, tx);
     await recordAudit(
       actor,
       {
@@ -61,7 +76,8 @@ export async function createStaffUser(input: CreateStaffUserInput, actor: Actor)
       },
       tx,
     );
-    return created;
+    // Reload so the response includes the linked instructor.
+    return tx.user.findUniqueOrThrow({ where: { id: created.id }, include: userRepository.userWithIdentityInclude });
   });
 
   return { user: toUserAccountDto(user), credentials: { username: user.username, temporaryPassword } };
@@ -83,9 +99,17 @@ export async function updateUser(id: number, input: UpdateUserInput, actor: Acto
   if (input.email && (await userRepository.isEmailTaken(input.email, id))) {
     throw AppError.conflict("That email address is already used.", { email: "Already in use." });
   }
+  if (roleChanging && input.role === "TEACHER" && !input.instructorId) {
+    throw AppError.validation({ instructorId: "Select the instructor this teacher account belongs to." });
+  }
 
   const updated = await prisma.$transaction(async (tx) => {
     const newRole = roleChanging ? await userRepository.findRoleByName(input.role!, tx) : null;
+    // Leaving the TEACHER role unlinks the instructor; becoming a TEACHER links one.
+    if (roleChanging && user.role.name === "TEACHER") {
+      await tx.instructor.updateMany({ where: { userId: id }, data: { userId: null } });
+    }
+    if (roleChanging && input.role === "TEACHER") await linkInstructor(input.instructorId!, id, tx);
     const saved = await userRepository.updateUser(
       id,
       {

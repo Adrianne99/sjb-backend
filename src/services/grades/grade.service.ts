@@ -18,6 +18,8 @@ import * as academicRepository from "../../repositories/academic.repository";
 import * as enrollmentSubjectRepository from "../../repositories/enrollment-subject.repository";
 import * as enrollmentRepository from "../../repositories/enrollment.repository";
 import * as gradeRepository from "../../repositories/grade.repository";
+import * as submissionRepository from "../../repositories/grade-submission.repository";
+import type { SubmissionRow } from "../../repositories/grade-submission.repository";
 import * as scheduleRepository from "../../repositories/schedule.repository";
 import type { Actor } from "../../types/auth.types";
 import { AppError } from "../../utils/app-error";
@@ -33,6 +35,7 @@ import { AUDIT_ACTIONS, recordAudit } from "../audit/audit.service";
 import { getGradingConfig, getGradingResolver } from "../settings/settings.service";
 import { resolveGradeEntry } from "./grading";
 import { notifyGradesPublished, notifyLater } from "../notifications/student-notifications.service";
+import { notifyTeacherOfReview } from "../notifications/teacher-notifications.service";
 
 const GRADEABLE_STATUSES = ["ENROLLED", "COMPLETED"];
 
@@ -45,6 +48,21 @@ async function getOfferingOrFail(selector: ClassSelector) {
 }
 
 const describeGrade = (grade: number | null, remark: string) => (grade !== null ? String(grade) : remark);
+
+/** A teacher's "Submit for review" status of a class, or null if never submitted. */
+export function toSubmissionDto(submission: SubmissionRow | null | undefined) {
+  if (!submission) return null;
+  const nameOf = (user: SubmissionRow["submittedBy"] | null) =>
+    user ? (user.staffProfile ? `${user.staffProfile.firstName} ${user.staffProfile.lastName}` : user.username) : null;
+  return {
+    status: submission.status,
+    submittedAt: submission.submittedAt.toISOString(),
+    submittedBy: nameOf(submission.submittedBy),
+    reviewedAt: submission.reviewedAt?.toISOString() ?? null,
+    reviewedBy: nameOf(submission.reviewedBy),
+    note: submission.note,
+  };
+}
 
 // --- Read --------------------------------------------------------------------
 
@@ -60,12 +78,15 @@ export async function listGrades(query: ListGradesQuery) {
   };
 }
 
-/** Classes offered in a term with grade progress, for the "Select class" step. */
-export async function listClasses(query: { semesterId?: number; sectionId?: number }) {
+/**
+ * Classes offered in a term with grade progress, for the "Select class" step.
+ * `instructorId` limits the list to one instructor's classes (used for teachers).
+ */
+export async function listClasses(query: { semesterId?: number; sectionId?: number; instructorId?: number }) {
   const semesterId = query.semesterId ?? (await academicRepository.findCurrentSemester())?.id;
   if (!semesterId) return [];
 
-  const [offerings, rosterCounts, extraCounts, grades] = await Promise.all([
+  const [offerings, rosterCounts, extraCounts, grades, submissions] = await Promise.all([
     scheduleRepository.listOfferings(semesterId, query.sectionId),
     prisma.enrollment.groupBy({
       by: ["sectionId"],
@@ -81,9 +102,20 @@ export async function listClasses(query: { semesterId?: number; sectionId?: numb
         enrollment: { select: { sectionId: true, extraSubjects: { select: { sectionId: true, subjectId: true } } } },
       },
     }),
+    submissionRepository.listSubmissionsForTerm(semesterId),
   ]);
 
-  return offerings.map((offering) => {
+  // A teacher sees a class if they teach at least one of its weekly slots.
+  const taught = query.instructorId
+    ? new Set(
+        (await prisma.classSchedule.findMany({ where: { semesterId, instructorId: query.instructorId }, select: { subjectId: true, sectionId: true } })).map(
+          (slot) => `${slot.subjectId}:${slot.sectionId}`,
+        ),
+      )
+    : null;
+  const visible = taught ? offerings.filter((offering) => taught.has(`${offering.subjectId}:${offering.sectionId}`)) : offerings;
+
+  return visible.map((offering) => {
     // A grade belongs to this class if the student is in this section, or takes this subject here as an extra.
     const classGrades = grades.filter(
       (grade) =>
@@ -103,6 +135,7 @@ export async function listClasses(query: { semesterId?: number; sectionId?: numb
       irregularCount: irregular,
       draftCount: classGrades.filter((grade) => grade.status === "DRAFT").length,
       publishedCount: classGrades.filter((grade) => grade.status === "PUBLISHED").length,
+      submission: toSubmissionDto(submissions.find((item) => item.sectionId === offering.sectionId && item.subjectId === offering.subjectId)),
     };
   });
 }
@@ -110,14 +143,16 @@ export async function listClasses(query: { semesterId?: number; sectionId?: numb
 /** Students of one class with their current grade (if any). */
 export async function getClassRoster(selector: ClassSelector) {
   const offering = await getOfferingOrFail(selector);
-  const [gradingFor, roster] = await Promise.all([
+  const [gradingFor, roster, submission] = await Promise.all([
     getGradingResolver(),
     gradeRepository.findClassRoster(selector.semesterId, selector.sectionId, selector.subjectId),
+    submissionRepository.findSubmission(selector),
   ]);
   const schedule = toScheduleDto(offering);
 
   return {
     class: { termLabel: schedule.termLabel, subject: schedule.subject, section: schedule.section, instructor: schedule.instructor },
+    submission: toSubmissionDto(submission),
     gradingConfig: gradingFor(offering.section.program.level),
     students: roster.map((enrollment) => ({
       enrollmentId: enrollment.id,
@@ -361,8 +396,15 @@ export async function publishClassGrades(selector: ClassSelector, actor: Actor) 
 
   if (draftIds.length === 0) throw AppError.badRequest("There are no draft grades to publish for this class.");
 
+  const submission = await submissionRepository.findSubmission(selector);
+  let reviewed: SubmissionRow | null = null;
+
   await prisma.$transaction(async (tx) => {
     await gradeRepository.publishGradesByIds(draftIds, actor.userId!, tx);
+    // A teacher's submission for this class is now done.
+    if (submission && submission.status !== "PUBLISHED") {
+      reviewed = await submissionRepository.reviewSubmission(submission.id, { status: "PUBLISHED", reviewedById: actor.userId! }, tx);
+    }
     await recordAudit(
       actor,
       {
@@ -377,5 +419,49 @@ export async function publishClassGrades(selector: ClassSelector, actor: Actor) 
   });
 
   notifyLater("grades published", () => notifyGradesPublished(draftIds));
+  const done = reviewed as SubmissionRow | null;
+  if (done) notifyLater("teacher: grades published", () => notifyTeacherOfReview(done));
   return { published: draftIds.length, studentsWithoutGrade: withoutGrade };
+}
+
+/**
+ * Staff send a submitted class back to the teacher (e.g. a grade looks wrong).
+ * The teacher can change the drafts again and re-submit.
+ */
+export async function returnClassGrades(selector: ClassSelector, note: string, actor: Actor) {
+  const offering = await getOfferingOrFail(selector);
+  const submission = await submissionRepository.findSubmission(selector);
+  if (!submission || submission.status !== "SUBMITTED") {
+    throw AppError.badRequest("Only grades that a teacher submitted for review can be returned.");
+  }
+
+  const returned = await prisma.$transaction(async (tx) => {
+    const saved = await submissionRepository.reviewSubmission(submission.id, { status: "RETURNED", reviewedById: actor.userId!, note }, tx);
+    await recordAudit(
+      actor,
+      {
+        action: AUDIT_ACTIONS.GRADES_RETURNED,
+        entityType: "grade_sheet",
+        entityId: `${selector.semesterId}:${selector.sectionId}:${selector.subjectId}`,
+        description: `Returned grades for ${offering.subject.code} — ${offering.section.name} to the teacher: ${note}`,
+      },
+      tx,
+    );
+    return saved;
+  });
+
+  notifyLater("teacher: grades returned", () => notifyTeacherOfReview(returned));
+  return toSubmissionDto(returned);
+}
+
+/** Classes waiting for staff review (for the notification bell). */
+export async function listPendingSubmissions() {
+  const rows = await submissionRepository.listSubmissionsByStatus("SUBMITTED");
+  return rows.map((row) => ({
+    semesterId: row.semesterId,
+    section: { id: row.sectionId, name: row.section.name },
+    subject: { id: row.subjectId, code: row.subject.code, name: row.subject.name },
+    instructor: row.instructor ? `${row.instructor.firstName} ${row.instructor.lastName}` : null,
+    ...toSubmissionDto(row)!,
+  }));
 }

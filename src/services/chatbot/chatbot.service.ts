@@ -33,6 +33,9 @@ function scoreEntry(entry: KnowledgeEntry, text: string) {
 
 const peso = (value: string | number) => `₱${Number(value).toLocaleString("en-PH")}`;
 
+/** "2026-09-30T…" → "Sep 30, 2026" (Philippine time). */
+const formatShortDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" });
+
 /** Public tuition summary from the fee table (no student data). */
 async function describeTuition(intro: string) {
   const { schedules, crossEnrollmentFee } = await listPublicFees();
@@ -84,13 +87,14 @@ class FaqChatbotProvider implements ChatbotProvider {
     if (best.id === "admission-requirements") {
       const documents = await listPublicRequirements();
       reply = documents.length
-        ? `${reply} ${documents.map((document) => document.name).join("; ")}. Contact the Registrar's Office if you have questions about any document.`
-        : "Please contact the Registrar's Office for the list of admission requirements.";
+        ? `${reply} ${documents.map((document) => document.name).join("; ")}.`
+        : "The list of admission requirements is not available right now. Please ask the Registrar's Office.";
     }
     if (best.id === "tuition-fees") reply = await describeTuition(reply);
     if (best.id === "announcements") {
       const latest = await listPublicAnnouncements(3);
-      if (latest.length) reply += ` Latest: ${latest.map((item) => `“${item.title}”`).join(", ")}.`;
+      const lines = latest.map((item) => `- ${item.title} (${formatShortDate(item.publishDate)})`);
+      reply = latest.length ? [reply, ...lines].join("\n") : "There are no new school announcements right now.";
     }
 
     return {

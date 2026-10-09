@@ -42,6 +42,9 @@ export function toUserAccountDto(user: UserWithIdentity) {
     position: user.staffProfile?.position ?? null,
     studentId: user.student?.id ?? null,
     studentNumber: user.student?.studentNumber ?? null,
+    /** TEACHER accounts: the linked instructor. */
+    instructorId: user.instructor?.id ?? null,
+    instructorName: user.instructor ? `${user.instructor.firstName} ${user.instructor.lastName}` : null,
     isActive: user.isActive,
     mustChangePassword: user.mustChangePassword,
     isLocked: Boolean(user.lockedUntil && user.lockedUntil > new Date()),

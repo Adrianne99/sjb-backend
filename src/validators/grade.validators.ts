@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { paginationQuerySchema } from "../utils/pagination";
-import { optionalId, optionalText, searchQuery } from "./common.validators";
+import { dateOnly, optionalId, optionalText, requiredText, searchQuery } from "./common.validators";
 
 const remarkSchema = z.enum(["PASSED", "FAILED", "INCOMPLETE", "DROPPED"]).nullish();
 const gradeValue = z.coerce.number().nullish();
@@ -40,6 +40,23 @@ export const classSelectorSchema = z.object({
   semesterId: z.coerce.number({ error: "Select a term." }).int().positive("Select a term."),
   sectionId: z.coerce.number({ error: "Select a section." }).int().positive("Select a section."),
   subjectId: z.coerce.number({ error: "Select a subject." }).int().positive("Select a subject."),
+});
+
+export const ATTENDANCE_STATUSES = ["PRESENT", "LATE", "ABSENT", "EXCUSED"] as const;
+
+/** One class on one date (attendance). */
+export const attendanceQuerySchema = classSelectorSchema.extend({ date: dateOnly("Date") });
+
+export const saveAttendanceSchema = attendanceQuerySchema.extend({
+  entries: z
+    .array(z.object({ enrollmentId: z.coerce.number().int().positive(), status: z.enum(ATTENDANCE_STATUSES, { error: "Choose present, late, absent or excused." }) }))
+    .min(1, "Mark at least one student.")
+    .max(300),
+});
+
+/** Staff send a submitted class back to the teacher, with a reason. */
+export const returnClassGradesSchema = classSelectorSchema.extend({
+  note: requiredText("Note for the teacher", 500),
 });
 
 export const listClassesQuerySchema = z.object({

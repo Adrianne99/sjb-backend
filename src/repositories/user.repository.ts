@@ -7,6 +7,8 @@ export const userWithIdentityInclude = {
   role: true,
   staffProfile: true,
   student: true,
+  /** The instructor linked to a TEACHER account (null for everyone else). */
+  instructor: true,
 } satisfies Prisma.UserInclude;
 
 export type UserWithIdentity = Prisma.UserGetPayload<{ include: typeof userWithIdentityInclude }>;

@@ -17,7 +17,13 @@ export type ErrorCode =
   | "CONFLICT"
   | "SCHEDULE_CONFLICT"
   | "RATE_LIMITED"
-  | "INTERNAL_ERROR";
+  | "INTERNAL_ERROR"
+  // SJB Assistant chat sessions (the frontend starts a new conversation on these)
+  | "CHAT_SESSION_REQUIRED" // no chat cookie
+  | "CHAT_SESSION_INVALID" // unknown token, or it belongs to another account
+  | "CHAT_SESSION_EXPIRED"
+  | "CHAT_SESSION_REVOKED"
+  | "CHAT_CSRF_INVALID";
 
 export class AppError extends Error {
   readonly statusCode: number;

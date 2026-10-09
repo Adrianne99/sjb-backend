@@ -2,7 +2,7 @@
 // Limits are per IP address. (Per-account lockout is handled in auth.service.ts.)
 import type { Request, Response } from "express";
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
-import { SESSION_COOKIE_NAME } from "../config/constants";
+import { CHAT_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME } from "../config/constants";
 import { env } from "../config/env";
 import { hashToken } from "../utils/crypto";
 
@@ -20,6 +20,8 @@ interface LimiterOptions {
   onlyFailures?: boolean;
   /** Count per logged-in session instead of per IP address. */
   perSession?: boolean;
+  /** Count per SJB Assistant chat session instead of per IP address. */
+  perChatSession?: boolean;
 }
 
 /** Logged-in users are counted per session; visitors per IP address. */
@@ -28,12 +30,19 @@ function sessionOrIpKey(req: Request): string {
   return typeof token === "string" && token ? `session:${hashToken(token)}` : ipKeyGenerator(req.ip ?? "");
 }
 
+/** Counts per chat session (cookie) when there is one, otherwise per IP. */
+function chatSessionOrIpKey(req: Request): string {
+  const token: unknown = req.cookies?.[CHAT_SESSION_COOKIE_NAME];
+  return typeof token === "string" && token ? `chat:${hashToken(token)}` : ipKeyGenerator(req.ip ?? "");
+}
+
 function createLimiter(options: LimiterOptions) {
   return rateLimit({
     windowMs: options.windowMinutes * 60 * 1000,
     limit: options.limit,
     skipSuccessfulRequests: options.onlyFailures ?? false,
     ...(options.perSession ? { keyGenerator: sessionOrIpKey } : {}),
+    ...(options.perChatSession ? { keyGenerator: chatSessionOrIpKey } : {}),
     standardHeaders: "draft-8",
     legacyHeaders: false,
     handler: limitReached(options.message),
@@ -71,9 +80,22 @@ export function createPasswordResetLimiter() {
   return createLimiter({ windowMinutes: 15, limit: env.isTest ? 1000 : 5, message: "Too many password reset requests. Please try again later." });
 }
 
-/** Public chatbot messages per IP. */
-export function createChatbotLimiter() {
-  return createLimiter({ windowMinutes: 1, limit: env.isTest ? 1000 : 20, message: "You are sending messages too quickly. Please wait a moment." });
+/**
+ * Chatbot messages, in two layers:
+ * - per chat session: 20 per minute (one person typing never gets near this);
+ * - per IP: 120 per minute, so a computer lab sharing one IP still works.
+ */
+export function createChatbotLimiters() {
+  const message = "You are sending messages too quickly. Please wait a moment.";
+  return [
+    createLimiter({ windowMinutes: 1, limit: env.isTest ? 1000 : 20, message, perChatSession: true }),
+    createLimiter({ windowMinutes: 1, limit: env.isTest ? 1000 : 120, message }),
+  ];
+}
+
+/** New chat sessions per IP — stops scripts from filling the chat_sessions table. */
+export function createChatSessionLimiter() {
+  return createLimiter({ windowMinutes: 15, limit: env.isTest ? 1000 : 30, message: "Too many new chats from this connection. Please wait a few minutes." });
 }
 
 /** Public online applications ("Enroll Now") per IP — stops spam. */

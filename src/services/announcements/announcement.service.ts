@@ -2,6 +2,7 @@
 // PUBLIC announcements appear on the landing page and in the student portal;
 // STUDENTS announcements appear in the portal only.
 // Content is plain text — the frontend never renders it as HTML (prevents XSS).
+import { roleHasPermission } from "../../config/permissions";
 import * as announcementRepository from "../../repositories/announcement.repository";
 import type { Actor, AuthUser } from "../../types/auth.types";
 import { AppError } from "../../utils/app-error";
@@ -18,6 +19,7 @@ function toAnnouncementDto(announcement: AnnouncementRow) {
     title: announcement.title,
     content: announcement.content,
     audience: announcement.audience,
+    category: announcement.category,
     status: announcement.status,
     publishDate: announcement.publishDate.toISOString(),
     expirationDate: announcement.expirationDate?.toISOString() ?? null,
@@ -71,8 +73,9 @@ function detectImageType(data: Buffer): string | null {
 export async function getAnnouncementImage(id: number, user: AuthUser | null) {
   const row = await announcementRepository.findAnnouncementImage(id);
   if (!row || !row.imageData || !row.imageType) throw AppError.notFound("Photo not found.");
-  const staff = user?.role === "ADMIN" || user?.role === "STAFF";
-  const allowed = staff || (isLive(row) && (row.audience === "PUBLIC" || Boolean(user)));
+  // Whoever manages announcements (admin + staff) may also see drafts' photos.
+  const manager = user ? roleHasPermission(user.role, "announcements:manage") : false;
+  const allowed = manager || (isLive(row) && (row.audience === "PUBLIC" || Boolean(user)));
   if (!allowed) throw AppError.notFound("Photo not found.");
   return { data: Buffer.from(row.imageData), type: row.imageType, isPublic: row.audience === "PUBLIC" && isLive(row) };
 }

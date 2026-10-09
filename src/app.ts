@@ -37,7 +37,7 @@ export function createApp(options: AppOptions = {}) {
       },
       credentials: true, // allow the session cookie
       methods: ["GET", "POST", "PUT", "DELETE"],
-      allowedHeaders: ["Content-Type", "X-CSRF-Token"],
+      allowedHeaders: ["Content-Type", "X-CSRF-Token", "X-Chat-CSRF-Token"],
     }),
   );
   app.use(express.json({ limit: "100kb" }));

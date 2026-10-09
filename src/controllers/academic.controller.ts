@@ -54,6 +54,10 @@ export async function listSections(req: Request, res: Response) {
 export async function createSection(req: Request, res: Response) {
   sendCreated(res, await academicService.createSection(parseInput(V.sectionSchema, req.body), getActor(req)), "Section created.");
 }
+export async function deleteSection(req: Request, res: Response) {
+  await academicService.deleteSection(parseId(req.params.id), getActor(req));
+  sendSuccess(res, null, { message: "Section deleted." });
+}
 export async function updateSection(req: Request, res: Response) {
   const input = parseInput(V.sectionSchema, req.body);
   sendSuccess(res, await academicService.updateSection(parseId(req.params.id), input, getActor(req)), { message: "Section updated." });

@@ -84,6 +84,8 @@ export function toInstructorDto(instructor: Instructor) {
     fullName: `${instructor.firstName} ${instructor.lastName}`,
     email: instructor.email,
     isActive: instructor.isActive,
+    /** True when a TEACHER account is linked (User Accounts). */
+    hasAccount: instructor.userId !== null,
   };
 }
 

@@ -157,6 +157,42 @@ export async function updateSection(id: number, input: V.SectionInput, actor: Ac
   return mapper.toSectionDto(section);
 }
 
+/**
+ * Removes a section that was added by mistake or is no longer needed.
+ * Refused while anything still uses it (students, schedules, grades, attendance),
+ * so no record is ever left pointing to a missing section.
+ */
+export async function deleteSection(id: number, actor: Actor) {
+  const section = await mustExist(academicRepository.findSectionById(id), "Section not found.");
+  const usage = await academicRepository.countSectionUsage(id);
+  const reasons = [
+    usage.enrollments && `${usage.enrollments} enrollment record(s)`,
+    usage.schedules && `${usage.schedules} class schedule(s)`,
+    usage.irregularStudents && `${usage.irregularStudents} irregular student subject(s)`,
+    usage.gradeSubmissions && `${usage.gradeSubmissions} submitted grade sheet(s)`,
+    usage.attendance && `${usage.attendance} attendance record(s)`,
+  ].filter(Boolean);
+  if (reasons.length) {
+    throw AppError.conflict(
+      `${section.name} can't be removed because it is still used by ${reasons.join(", ")}. Move or remove those first — or keep the section for the school's records.`,
+    );
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await academicRepository.deleteSection(id, tx);
+    await recordAudit(
+      actor,
+      {
+        action: AUDIT_ACTIONS.ACADEMIC_RECORD_DELETED,
+        entityType: "section",
+        entityId: id,
+        description: `Deleted section ${section.name} (${section.academicYear.name})`,
+      },
+      tx,
+    );
+  });
+}
+
 // --- Subjects ----------------------------------------------------------------
 
 export async function listSubjects() {

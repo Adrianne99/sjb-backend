@@ -26,6 +26,14 @@ const envSchema = z.object({
   AI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(20000),
 
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
+
+  // SJB Assistant chat sessions (no account needed). A session ends after
+  // CHAT_SESSION_IDLE_MINUTES without messages, or CHAT_SESSION_MAX_HOURS after
+  // it started — whichever comes first. Ended sessions (and their messages) are
+  // deleted CHAT_SESSION_RETENTION_HOURS later.
+  CHAT_SESSION_IDLE_MINUTES: z.coerce.number().int().min(1).max(24 * 60).default(30),
+  CHAT_SESSION_MAX_HOURS: z.coerce.number().int().min(1).max(24 * 30).default(24),
+  CHAT_SESSION_RETENTION_HOURS: z.coerce.number().int().min(0).max(24 * 90).default(24),
 });
 
 const parsed = envSchema.safeParse(process.env);

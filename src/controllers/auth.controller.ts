@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { toCurrentUserDto } from "../mappers/user.mapper";
 import * as authService from "../services/auth/auth.service";
 import { clearSessionCookie, endSession, setSessionCookie } from "../services/auth/session.service";
+import { endChatSessionOnLogout, linkChatSessionAfterLogin } from "../services/chatbot/chat-session.service";
 import { getActor, getAuth, getClientIp, getUserAgent } from "../utils/request";
 import { sendSuccess } from "../utils/response";
 import { parseInput } from "../utils/validate";
@@ -21,6 +22,8 @@ export async function login(req: Request, res: Response) {
 
   const result = await authService.login(input, { ipAddress: getClientIp(req), userAgent: getUserAgent(req) });
   setSessionCookie(res, result.token, result.maxAgeMs);
+  // An open SJB Assistant chat now belongs to this (verified) account.
+  await linkChatSessionAfterLogin(req, res, result.user.id);
   sendSuccess(res, { user: toCurrentUserDto(result.user), csrfToken: result.csrfToken }, { message: "Logged in." });
 }
 
@@ -28,6 +31,7 @@ export async function logout(req: Request, res: Response) {
   const auth = getAuth(req);
   await authService.logout(getActor(req), auth.sessionId);
   clearSessionCookie(res);
+  await endChatSessionOnLogout(req, res);
   sendSuccess(res, null, { message: "Logged out." });
 }
 

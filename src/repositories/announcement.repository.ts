@@ -1,5 +1,5 @@
 import { prisma } from "../config/database";
-import type { AnnouncementAudience, AnnouncementStatus, Prisma } from "../generated/prisma/client";
+import type { AnnouncementAudience, AnnouncementCategory, AnnouncementStatus, Prisma } from "../generated/prisma/client";
 
 const include = { createdBy: { select: { username: true } } } satisfies Prisma.AnnouncementInclude;
 /** Photos are large, so normal queries never load them (see findAnnouncementImage). */
@@ -9,6 +9,7 @@ export interface ListAnnouncementsFilters {
   search?: string;
   status?: AnnouncementStatus;
   audience?: AnnouncementAudience;
+  category?: AnnouncementCategory;
   skip: number;
   take: number;
 }
@@ -17,6 +18,7 @@ export async function listAnnouncements(filters: ListAnnouncementsFilters) {
   const where: Prisma.AnnouncementWhereInput = {
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.audience ? { audience: filters.audience } : {}),
+    ...(filters.category ? { category: filters.category } : {}),
     ...(filters.search ? { OR: [{ title: { contains: filters.search } }, { content: { contains: filters.search } }] } : {}),
   };
   const [items, total] = await Promise.all([

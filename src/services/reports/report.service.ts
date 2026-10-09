@@ -1,6 +1,7 @@
 // Dashboard numbers and administrative reports. All figures come straight
 // from the database at request time — nothing is cached or estimated.
 import { prisma } from "../../config/database";
+import { roleHasPermission, type Permission } from "../../config/permissions";
 import { Prisma } from "../../generated/prisma/client";
 import type { RoleName } from "../../generated/prisma/client";
 import { toEnrollmentDto } from "../../mappers/enrollment.mapper";
@@ -45,7 +46,25 @@ async function collectionsByMonth(months: number) {
   return result;
 }
 
+/** Runs `query` only when allowed; otherwise returns `fallback` without touching the database. */
+function onlyIf<T>(allowed: boolean, query: () => Promise<T>, fallback: T): Promise<T> {
+  return allowed ? query() : Promise.resolve(fallback);
+}
+
+/**
+ * The office dashboard. Every office role gets one, but each part is only
+ * filled in when the role has the matching permission — e.g. a cashier sees
+ * payments but no enrollments or grades, and a registrar the other way round.
+ * Parts a role may not see are null (stats) or empty lists.
+ */
 export async function getDashboard(role: RoleName) {
+  const may = (permission: Permission) => roleHasPermission(role, permission);
+  const canStudents = may("students:read");
+  const canEnrollments = may("enrollments:read");
+  const canPayments = may("payments:read");
+  const canGrades = may("grades:read");
+  const canSchedules = may("schedules:read");
+
   const currentTerm = await academicRepository.findCurrentSemester();
   const termId = currentTerm?.id ?? -1;
   const now = nowInManila();
@@ -63,21 +82,26 @@ export async function getDashboard(role: RoleName) {
     recentActivity,
     gradingFor,
   ] = await Promise.all([
-    prisma.student.count({ where: { status: "ACTIVE" } }),
-    prisma.enrollment.groupBy({ by: ["status"], where: { semesterId: termId }, _count: { _all: true } }),
-    prisma.enrollment.groupBy({
-      by: ["yearLevel"],
-      where: { semesterId: termId, status: { in: ["ENROLLED", "PENDING"] } },
-      _count: { _all: true },
-      orderBy: { yearLevel: "asc" },
-    }),
-    balanceRepository.findOutstandingBalances({ limit: 1 }),
-    collectionsByMonth(6),
-    enrollmentRepository.findRecentEnrollments(5),
-    paymentRepository.findRecentPayments(5),
-    gradeRepository.findRecentGradeUpdates(5),
-    scheduleRepository.listSchedules({ semesterId: termId, dayOfWeek: now.dayOfWeek }),
-    role === "ADMIN" ? auditRepository.listRecentAuditLogs(8) : Promise.resolve([]),
+    onlyIf(canStudents, () => prisma.student.count({ where: { status: "ACTIVE" } }), null),
+    onlyIf(canEnrollments, () => prisma.enrollment.groupBy({ by: ["status"], where: { semesterId: termId }, _count: { _all: true } }), []),
+    onlyIf(
+      canEnrollments,
+      () =>
+        prisma.enrollment.groupBy({
+          by: ["yearLevel"],
+          where: { semesterId: termId, status: { in: ["ENROLLED", "PENDING"] } },
+          _count: { _all: true },
+          orderBy: { yearLevel: "asc" },
+        }),
+      [],
+    ),
+    onlyIf(canPayments, () => balanceRepository.findOutstandingBalances({ limit: 1 }), null),
+    onlyIf(canPayments, () => collectionsByMonth(6), []),
+    onlyIf(canEnrollments, () => enrollmentRepository.findRecentEnrollments(5), []),
+    onlyIf(canPayments, () => paymentRepository.findRecentPayments(5), []),
+    onlyIf(canGrades, () => gradeRepository.findRecentGradeUpdates(5), []),
+    onlyIf(canSchedules, () => scheduleRepository.listSchedules({ semesterId: termId, dayOfWeek: now.dayOfWeek }), []),
+    onlyIf(may("audit:read"), () => auditRepository.listRecentAuditLogs(8), []),
     getGradingResolver(),
   ]);
 
@@ -87,10 +111,10 @@ export async function getDashboard(role: RoleName) {
     currentTerm: currentTerm ? { id: currentTerm.id, label: `${currentTerm.name}, ${currentTerm.academicYear.name}` } : null,
     stats: {
       totalStudents,
-      currentlyEnrolled: countFor("ENROLLED"),
-      pendingEnrollment: countFor("PENDING"),
-      studentsWithBalance: outstanding.studentCount,
-      outstandingTotal: toMoneyString(outstanding.totalOutstanding),
+      currentlyEnrolled: canEnrollments ? countFor("ENROLLED") : null,
+      pendingEnrollment: canEnrollments ? countFor("PENDING") : null,
+      studentsWithBalance: outstanding ? outstanding.studentCount : null,
+      outstandingTotal: outstanding ? toMoneyString(outstanding.totalOutstanding) : null,
     },
     enrollmentByYearLevel: yearLevelCounts.map((row) => ({ yearLevel: row.yearLevel, count: row._count._all })),
     collectionsByMonth: monthly,

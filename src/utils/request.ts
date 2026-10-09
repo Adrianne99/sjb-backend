@@ -1,5 +1,6 @@
 import type { Request } from "express";
 import type { Actor, AuthContext } from "../types/auth.types";
+import type { ChatSessionContext } from "../types/chat.types";
 import { AppError } from "./app-error";
 
 export function getClientIp(req: Request): string | null {
@@ -23,6 +24,12 @@ export function getActor(req: Request): Actor {
 export function getAuth(req: Request): AuthContext {
   if (!req.auth) throw AppError.unauthorized();
   return req.auth;
+}
+
+/** Returns req.chatSession or throws 401. Use inside controllers behind requireChatSession. */
+export function getChatSession(req: Request): ChatSessionContext {
+  if (!req.chatSession) throw new AppError(401, "CHAT_SESSION_REQUIRED", "Please start a chat session first.");
+  return req.chatSession;
 }
 
 /** For /api/me/* routes: the logged-in student's ID (never taken from the URL). */

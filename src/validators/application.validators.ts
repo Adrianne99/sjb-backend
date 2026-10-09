@@ -1,7 +1,7 @@
 // Online pre-registration ("Enroll Now") — public form + staff review.
 import { z } from "zod";
 import { paginationQuerySchema } from "../utils/pagination";
-import { optionalId, optionalText, phoneNumber, requiredText, searchQuery } from "./common.validators";
+import { optionalId, optionalText, requiredText, searchQuery } from "./common.validators";
 import { birthdateSchema, sexSchema } from "./student.validators";
 
 export const APPLICATION_STATUSES = ["SUBMITTED", "CONVERTED", "REJECTED"] as const;
@@ -23,19 +23,25 @@ export const applicationSchema = z.object({
     .min(7, "Enter a valid contact number.")
     .max(30)
     .regex(/^[0-9+()\-\s]+$/, "Use digits, spaces, +, - or parentheses only."),
-  addressLine: optionalText(255),
-  barangay: optionalText(100),
-  city: optionalText(100),
-  province: optionalText(100),
+  // Address and parent/guardian are required on the online form.
+  addressLine: requiredText("House no. / street", 255),
+  barangay: requiredText("Barangay", 100),
+  city: requiredText("City / municipality", 100),
+  province: requiredText("Province", 100),
   zipCode: z
-    .string()
+    .string({ error: "ZIP code is required." })
     .trim()
-    .regex(/^\d{0,10}$/, "ZIP code must contain digits only.")
-    .nullish()
-    .transform((value) => (value ? value : null)),
-  guardianName: optionalText(150),
-  guardianRelationship: optionalText(50),
-  guardianContactNumber: phoneNumber,
+    .min(1, "ZIP code is required.")
+    .max(10, "ZIP code must be 10 digits or fewer.")
+    .regex(/^\d+$/, "ZIP code must contain digits only."),
+  guardianName: requiredText("Parent / guardian's full name", 150),
+  guardianRelationship: requiredText("Relationship", 50),
+  guardianContactNumber: z
+    .string({ error: "Parent / guardian's mobile number is required." })
+    .trim()
+    .min(7, "Enter a valid mobile number.")
+    .max(30)
+    .regex(/^[0-9+()\-\s]+$/, "Use digits, spaces, +, - or parentheses only."),
   programId: z.coerce.number({ error: "Select a program." }).int().positive("Select a program."),
   yearLevel: z.coerce.number({ error: "Select a year level." }).int().min(1).max(12),
   applicantType: z.enum(APPLICANT_TYPES, { error: "Select new, transferee or returning." }),

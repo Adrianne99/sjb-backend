@@ -9,11 +9,15 @@ const dateTime = (label: string) =>
     .refine((value) => !Number.isNaN(new Date(value).getTime()), `${label} is not a valid date.`)
     .transform((value) => new Date(value));
 
+/** The tag shown on the website, e.g. "EVENT". */
+export const ANNOUNCEMENT_CATEGORIES = ["GENERAL", "ACADEMIC", "EVENT", "ANNOUNCEMENT"] as const;
+
 export const announcementSchema = z
   .object({
     title: requiredText("Title", 200),
     content: requiredText("Content", 10_000),
     audience: z.enum(["PUBLIC", "STUDENTS"]).default("PUBLIC"),
+    category: z.enum(ANNOUNCEMENT_CATEGORIES, { error: "Select a category." }).default("GENERAL"),
     status: z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]).default("DRAFT"),
     publishDate: dateTime("Publish date"),
     expirationDate: dateTime("Expiration date").nullish(),
@@ -27,6 +31,7 @@ export const listAnnouncementsQuerySchema = paginationQuerySchema.extend({
   search: searchQuery,
   status: z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]).optional(),
   audience: z.enum(["PUBLIC", "STUDENTS"]).optional(),
+  category: z.enum(ANNOUNCEMENT_CATEGORIES).optional(),
 });
 
 export type AnnouncementInput = z.infer<typeof announcementSchema>;

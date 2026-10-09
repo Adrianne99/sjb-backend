@@ -28,6 +28,7 @@ router.post("/semesters/:id/set-current", canManage, academic.setCurrentSemester
 router.get("/sections", canRead, academic.listSections);
 router.post("/sections", canManage, academic.createSection);
 router.put("/sections/:id", canManage, academic.updateSection);
+router.delete("/sections/:id", canManage, academic.deleteSection);
 
 router.get("/subjects", canRead, academic.listSubjects);
 router.post("/subjects", canManage, academic.createSubject);

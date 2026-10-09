@@ -34,7 +34,14 @@ describe("Online pre-registration (Enroll Now)", () => {
       sex: "FEMALE",
       email: EMAIL,
       contactNumber: "0917 123 4567",
+      addressLine: "12 Sample St.",
+      barangay: "Barangay Uno",
+      city: "Mandaluyong City",
+      province: "Metro Manila",
+      zipCode: "1550",
       guardianName: "Rosa Applicant",
+      guardianRelationship: "Mother",
+      guardianContactNumber: "0918 765 4321",
       programId: it.id,
       yearLevel: 1,
       applicantType: "NEW",
@@ -61,6 +68,15 @@ describe("Online pre-registration (Enroll Now)", () => {
     expect((await request(app).post("/api/applications").send({ ...form, yearLevel: 3 })).status).toBe(422); // IT has 1st–2nd year only
     expect((await request(app).post("/api/applications").send({ ...form, email: "not-an-email" })).status).toBe(422);
     expect((await request(app).post("/api/applications").send({ ...form, website: "http://spam.example" })).status).toBe(422); // honeypot
+
+    // Address and parent/guardian are required.
+    const required = ["addressLine", "barangay", "city", "province", "zipCode", "guardianName", "guardianRelationship", "guardianContactNumber"];
+    const missing = await request(app)
+      .post("/api/applications")
+      .send({ ...form, ...Object.fromEntries(required.map((field) => [field, null])) });
+    expect(missing.status).toBe(422);
+    expect(Object.keys(missing.body.errors).sort()).toEqual([...required].sort());
+    expect((await request(app).post("/api/applications").send({ ...form, zipCode: "15A0" })).status).toBe(422);
   });
 
   it("accepts an application, gives a reference number and emails what to bring", async () => {

@@ -57,6 +57,19 @@ export const createSection = (data: Prisma.SectionUncheckedCreateInput) =>
 export const updateSection = (id: number, data: Prisma.SectionUncheckedUpdateInput) =>
   prisma.section.update({ where: { id }, data, include: { program: true, academicYear: true } });
 
+/** How many records still point to a section (it can only be deleted when all are 0). */
+export async function countSectionUsage(id: number) {
+  const [enrollments, schedules, irregularStudents, gradeSubmissions, attendance] = await Promise.all([
+    prisma.enrollment.count({ where: { sectionId: id } }),
+    prisma.classSchedule.count({ where: { sectionId: id } }),
+    prisma.enrollmentSubject.count({ where: { sectionId: id } }),
+    prisma.gradeSubmission.count({ where: { sectionId: id } }),
+    prisma.attendanceRecord.count({ where: { sectionId: id } }),
+  ]);
+  return { enrollments, schedules, irregularStudents, gradeSubmissions, attendance };
+}
+export const deleteSection = (id: number, db: DbClient = prisma) => db.section.delete({ where: { id } });
+
 // --- Subjects ----------------------------------------------------------------
 export const findSubjects = () => prisma.subject.findMany({ orderBy: { code: "asc" } });
 export const findSubjectById = (id: number, db: DbClient = prisma) => db.subject.findUnique({ where: { id } });

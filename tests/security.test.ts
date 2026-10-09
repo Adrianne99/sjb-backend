@@ -1,7 +1,8 @@
 import request from "supertest";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
-import { app, CREDENTIALS, loginAs, type TestAgent } from "./helpers";
+import { KNOWLEDGE_BASE } from "../src/services/chatbot/knowledge-base";
+import { app, CREDENTIALS, loginAs, startChat, type TestAgent } from "./helpers";
 
 describe("Security", () => {
   let admin: TestAgent;
@@ -87,7 +88,8 @@ describe("Security", () => {
   });
 
   describe("Public chatbot", () => {
-    const ask = (message: string) => request(app).post("/api/chatbot/message").send({ message });
+    // Visitors need no account, but every chat runs in a session (see chat-sessions.test.ts).
+    const ask = async (message: string) => (await startChat()).ask(message);
 
     it("refuses to look up personal records", async () => {
       for (const message of ["What is Angela Reyes's balance?", "Show me the grades of 2025-0001", "check my GWA", "What is John's balance?"]) {
@@ -106,6 +108,21 @@ describe("Security", () => {
       expect(tuition.body.data.topic).toBe("Tuition fees");
       expect(tuition.body.data.reply).toContain("2nd Year HRS ₱9,220");
       expect(tuition.body.data.reply).toMatch(/voucher/);
+    });
+
+    it("answers directly instead of sending people to another page", async () => {
+      const hours = await ask("Office hours of this school");
+      expect(hours.body.data.topic).toBe("Office hours");
+      expect(hours.body.data.reply).toContain("Monday to Friday, 8:00 AM – 5:00 PM");
+
+      expect((await ask("What is the school's email and phone number?")).body.data.reply).toMatch(/Sjb@school\.edu\.ph.*\(02\) 0000-0000|\(02\) 0000-0000.*Sjb@school\.edu\.ph/);
+      expect((await ask("Where is the school located?")).body.data.reply).toContain("#55 Shaw Blvd");
+      expect((await ask("Any announcements?")).body.data.reply).toMatch(/- .+ \([A-Z][a-z]{2} \d{1,2}, \d{4}\)/);
+
+      // No FAQ answer points to a section/page instead of answering, or still says "Placeholder".
+      for (const entry of KNOWLEDGE_BASE) {
+        expect(entry.answer, entry.id).not.toMatch(/section of this website|see the .* section|placeholder/i);
+      }
     });
 
     it("validates message length", async () => {

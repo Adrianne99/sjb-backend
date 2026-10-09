@@ -54,6 +54,25 @@ describe("Announcement photos and pages", () => {
     expect(response.status).toBe(403);
   });
 
+  it("saves a category (General by default) and shows it on the website", async () => {
+    const base = { content: "Category test.", status: "PUBLISHED", audience: "PUBLIC", publishDate: new Date(Date.now() - 60_000).toISOString() };
+    const general = await staff.post("/api/announcements", { ...base, title: "Category test (default)" });
+    expect(general.body.data.category).toBe("GENERAL");
+
+    const event = await staff.post("/api/announcements", { ...base, title: "Category test (event)", category: "EVENT" });
+    expect(event.status).toBe(201);
+    const listed = (await request(app).get("/api/announcements/public")).body.data.find((item: { id: number }) => item.id === event.body.data.id);
+    expect(listed.category).toBe("EVENT");
+
+    const changed = await staff.put(`/api/announcements/${event.body.data.id}`, { ...base, title: "Category test (event)", category: "ACADEMIC" });
+    expect(changed.body.data.category).toBe("ACADEMIC");
+    expect((await staff.get("/api/announcements?category=ACADEMIC")).body.data.map((item: { id: number }) => item.id)).toContain(event.body.data.id);
+
+    const invalid = await staff.post("/api/announcements", { ...base, title: "Category test (bad)", category: "PARTY" });
+    expect(invalid.status).toBe(422);
+    expect(invalid.body.errors).toHaveProperty("category");
+  });
+
   it("opens a public announcement on its own page, but not drafts or student-only posts", async () => {
     const page = await request(app).get(`/api/announcements/public/${publicId}`);
     expect(page.status).toBe(200);

@@ -7,7 +7,11 @@
 // Each entry has keywords (lower-case) that trigger it. The answer with the
 // most keyword matches wins. Keep answers short, factual and public — never
 // put personal or student-specific information here.
+//
+// Answer DIRECTLY: give the actual hours, number, address or steps. Never send
+// people to "the Contact section" or another page for something we can say here.
 // =============================================================================
+import { SCHOOL_CONTACT } from "./school-info";
 
 export interface KnowledgeEntry {
   id: string;
@@ -22,16 +26,16 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     topic: "Admission requirements",
     keywords: ["admission", "admissions", "requirement", "requirements", "apply", "application", "enroll", "enrollment", "new student", "transferee", "documents"],
     // The actual document list is added from the database (Settings -> Requirements).
-    answer: "Please submit these documents to the Registrar's Office:",
+    answer: "Bring these documents to the Registrar's Office:",
   },
   {
     id: "payment-procedures",
     topic: "Payment procedures",
     keywords: ["pay", "payment", "payments", "cashier", "gcash", "maya", "bank", "downpayment"],
     answer:
-      "Tuition and fee payments are handled by the school's Accounting Office / Cashier. " +
-      "[Placeholder — official payment channels and schedules will be posted here.] " +
-      "Enrolled students can view their assessed fees, payments and remaining balance in the Student Portal under Balance & Payments.",
+      `Pay at the school's Accounting Office (${SCHOOL_CONTACT.officeHours}). Online payment is not available. ` +
+      "You can pay in installments (down payment, prelim, midterm and final) or pay in full for a discount: early bird (1 month before the term) or cash (up to the first day of classes). " +
+      "Enrolled students can see their balance in the Student Portal under Balance & Payments.",
   },
   {
     id: "tuition-fees",
@@ -45,22 +49,33 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     topic: "Class schedules",
     keywords: ["schedule", "schedules", "class", "classes", "timetable", "room", "time", "start of classes"],
     answer:
-      "Enrolled students can see their own class schedule (subject, instructor, room, day and time) by logging in to the Student Portal and opening My Schedule. " +
-      "[Placeholder — the official academic calendar will be linked here.]",
+      "Classes for the First Semester of School Year 2026-2027 start on July 7, 2026. " +
+      "Enrolled students see their own class schedule (subject, instructor, room, day and time) in the Student Portal under My Schedule.",
   },
   {
     id: "announcements",
     topic: "School announcements",
     keywords: ["announcement", "announcements", "news", "event", "events", "update", "updates", "holiday", "suspension"],
-    answer: "You can read the latest school announcements in the Announcements section of this website.",
+    // The latest announcement titles and dates are added from the database.
+    answer: "Here are the latest school announcements:",
+  },
+  {
+    id: "office-hours",
+    topic: "Office hours",
+    keywords: ["office hours", "hours", "open", "opening", "close", "closing", "what time"],
+    answer: `The Registrar's and Accounting offices are open ${SCHOOL_CONTACT.officeHours}.`,
   },
   {
     id: "contact",
     topic: "Contact information",
-    keywords: ["contact", "phone", "email", "address", "location", "where", "office hours", "hours", "visit", "registrar"],
-    answer:
-      "Saint John Bosco Institute of Arts and Sciences is in Kalentong, Mandaluyong City. " +
-      "Please see the Contact section of this website for the school's official phone numbers, email and office hours.",
+    keywords: ["contact", "phone", "telephone", "call", "number", "email", "e-mail", "reach", "registrar"],
+    answer: `Phone: ${SCHOOL_CONTACT.phone}. Email: ${SCHOOL_CONTACT.email}. Office hours: ${SCHOOL_CONTACT.officeHours}.`,
+  },
+  {
+    id: "location",
+    topic: "Location",
+    keywords: ["address", "location", "located", "where", "directions", "how to get", "map", "visit"],
+    answer: `The school is at ${SCHOOL_CONTACT.address}.`,
   },
   {
     id: "portal-login",
@@ -83,8 +98,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     topic: "Programs offered",
     keywords: ["program", "programs", "course", "courses", "strand", "degree", "offer", "offered", "academics", "senior high", "shs", "grade 11", "grade 12", "college"],
     answer:
-      "The school offers Senior High School (Grade 11 and Grade 12) and two college programs: Information Technology (IT) and Hotel and Restaurant Services (HRS), both 1st and 2nd year. " +
-      "See the Academics section of this website for details.",
+      "The school offers Senior High School (Grade 11 and Grade 12) and two college programs: Information Technology (IT) and Hotel and Restaurant Services (HRS), both 1st and 2nd year.",
   },
 ];
 

@@ -25,9 +25,12 @@ datasource db {
 // -----------------------------------------------------------------------------
 
 enum RoleName {
-  ADMIN
-  STAFF
-  STUDENT
+  ADMIN // superadministrator: everything
+  STAFF // all-around office staff: registrar + cashier work (and grades, schedules, reports)
+  CASHIER // payments only (find a student, see balances, record payments)
+  REGISTRAR // enrollment only (students, applications, requirements, enrollment, tuition fees)
+  TEACHER // own classes only: schedule, class rosters, draft grades (linked to an instructor)
+  STUDENT // student portal
 }
 
 enum Sex {
@@ -126,6 +129,34 @@ enum AnnouncementAudience {
   STUDENTS // student portal only
 }
 
+/// The tag shown on an announcement (e.g. "EVENT").
+enum AnnouncementCategory {
+  GENERAL
+  ACADEMIC
+  EVENT
+  ANNOUNCEMENT
+}
+
+/// A teacher's grade sheet for one class, sent to the Registrar's Office.
+enum GradeSubmissionStatus {
+  SUBMITTED // waiting for staff (the teacher can no longer change the drafts)
+  RETURNED // sent back to the teacher with a note
+  PUBLISHED // staff published the grades
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  EXCUSED
+}
+
+/// Who wrote a chatbot message.
+enum ChatMessageRole {
+  USER // the visitor
+  ASSISTANT // SJB Assistant
+}
+
 // -----------------------------------------------------------------------------
 // Accounts, authentication and authorization
 // -----------------------------------------------------------------------------
@@ -162,22 +193,27 @@ model User {
   role                Role                 @relation(fields: [roleId], references: [id])
   staffProfile        StaffProfile?
   student             Student?
+  instructor          Instructor?
   sessions            Session[]
+  chatSessions        ChatSession[]
   passwordResetTokens PasswordResetToken[]
   auditLogs           AuditLog[]
 
   // Back-references for "who did it" columns on other tables
-  enrollmentsCreated   Enrollment[]         @relation("EnrollmentCreatedBy")
-  gradesEncoded        Grade[]              @relation("GradeEncodedBy")
-  gradesPublished      Grade[]              @relation("GradePublishedBy")
-  assessmentsCreated   TuitionAssessment[]  @relation("AssessmentCreatedBy")
-  paymentsRecorded     Payment[]            @relation("PaymentRecordedBy")
-  paymentsVoided       Payment[]            @relation("PaymentVoidedBy")
-  announcementsCreated Announcement[]       @relation("AnnouncementCreatedBy")
-  requirementsUpdated  StudentRequirement[] @relation("RequirementUpdatedBy")
-  extraSubjectsAdded   EnrollmentSubject[]  @relation("EnrollmentSubjectCreatedBy")
-  settingsUpdated      SystemSetting[]      @relation("SettingUpdatedBy")
-  applicationsReviewed Application[]        @relation("ApplicationReviewedBy")
+  enrollmentsCreated       Enrollment[]         @relation("EnrollmentCreatedBy")
+  gradesEncoded            Grade[]              @relation("GradeEncodedBy")
+  gradesPublished          Grade[]              @relation("GradePublishedBy")
+  assessmentsCreated       TuitionAssessment[]  @relation("AssessmentCreatedBy")
+  paymentsRecorded         Payment[]            @relation("PaymentRecordedBy")
+  paymentsVoided           Payment[]            @relation("PaymentVoidedBy")
+  announcementsCreated     Announcement[]       @relation("AnnouncementCreatedBy")
+  requirementsUpdated      StudentRequirement[] @relation("RequirementUpdatedBy")
+  extraSubjectsAdded       EnrollmentSubject[]  @relation("EnrollmentSubjectCreatedBy")
+  settingsUpdated          SystemSetting[]      @relation("SettingUpdatedBy")
+  applicationsReviewed     Application[]        @relation("ApplicationReviewedBy")
+  gradeSubmissionsSent     GradeSubmission[]    @relation("GradeSubmissionSentBy")
+  gradeSubmissionsReviewed GradeSubmission[]    @relation("GradeSubmissionReviewedBy")
+  attendanceRecorded       AttendanceRecord[]   @relation("AttendanceRecordedBy")
 
   @@index([roleId])
   @@map("users")
@@ -185,10 +221,12 @@ model User {
 
 // Names for ADMIN / STAFF accounts. Student names live on the students table.
 model StaffProfile {
-  userId    Int     @id @map("user_id")
-  firstName String  @map("first_name") @db.VarChar(100)
-  lastName  String  @map("last_name") @db.VarChar(100)
-  position  String? @db.VarChar(100)
+  userId        Int     @id @map("user_id")
+  firstName     String  @map("first_name") @db.VarChar(100)
+  lastName      String  @map("last_name") @db.VarChar(100)
+  position      String? @db.VarChar(100)
+  /// Editable by the staff member in My Account.
+  contactNumber String? @map("contact_number") @db.VarChar(30)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -213,6 +251,44 @@ model Session {
   @@index([userId])
   @@index([expiresAt])
   @@map("sessions")
+}
+
+/// One SJB Assistant conversation. Visitors do NOT need an account:
+/// user_id stays NULL unless the visitor was logged in (set by the server, never by the browser).
+/// Only an HMAC hash of the cookie token is stored, never the token itself.
+/// All times are UTC. See services/chatbot/chat-session.service.ts for the rules.
+model ChatSession {
+  id               String    @id @default(uuid()) @db.Char(36)
+  sessionTokenHash String    @unique @map("session_token_hash") @db.Char(64)
+  userId           Int?      @map("user_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  lastActivityAt   DateTime  @default(now()) @map("last_activity_at")
+  /// The earlier of (last activity + idle timeout) and (created + maximum lifetime).
+  expiresAt        DateTime  @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+
+  // Deleting a user deletes their chat sessions (no orphaned user references).
+  user     User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([lastActivityAt])
+  @@map("chat_sessions")
+}
+
+/// The messages of one chat session. Deleted together with the session.
+model ChatMessage {
+  id        Int             @id @default(autoincrement())
+  sessionId String          @map("session_id") @db.Char(36)
+  role      ChatMessageRole
+  content   String          @db.Text
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, id])
+  @@map("chat_messages")
 }
 
 model PasswordResetToken {
@@ -370,9 +446,10 @@ model Semester {
   endDate        DateTime? @map("end_date") @db.Date
   isCurrent      Boolean   @default(false) @map("is_current")
 
-  academicYear AcademicYear    @relation(fields: [academicYearId], references: [id])
-  enrollments  Enrollment[]
-  schedules    ClassSchedule[]
+  academicYear     AcademicYear      @relation(fields: [academicYearId], references: [id])
+  enrollments      Enrollment[]
+  schedules        ClassSchedule[]
+  gradeSubmissions GradeSubmission[]
 
   @@unique([academicYearId, termNumber])
   @@index([isCurrent])
@@ -386,11 +463,13 @@ model Section {
   yearLevel      Int    @map("year_level")
   academicYearId Int    @map("academic_year_id")
 
-  program       Program             @relation(fields: [programId], references: [id])
-  academicYear  AcademicYear        @relation(fields: [academicYearId], references: [id])
-  enrollments   Enrollment[]
-  schedules     ClassSchedule[]
-  extraStudents EnrollmentSubject[]
+  program          Program             @relation(fields: [programId], references: [id])
+  academicYear     AcademicYear        @relation(fields: [academicYearId], references: [id])
+  enrollments      Enrollment[]
+  schedules        ClassSchedule[]
+  extraStudents    EnrollmentSubject[]
+  gradeSubmissions GradeSubmission[]
+  attendance       AttendanceRecord[]
 
   @@unique([academicYearId, name])
   @@index([programId, yearLevel])
@@ -410,6 +489,8 @@ model Subject {
   schedules        ClassSchedule[]
   grades           Grade[]
   extraEnrollments EnrollmentSubject[]
+  gradeSubmissions GradeSubmission[]
+  attendance       AttendanceRecord[]
 
   @@map("subjects")
 }
@@ -421,9 +502,13 @@ model Instructor {
   lastName       String  @map("last_name") @db.VarChar(100)
   email          String? @db.VarChar(191)
   isActive       Boolean @default(true) @map("is_active")
+  /// The instructor's login (a TEACHER account). One instructor = one account.
+  userId         Int?    @unique @map("user_id")
 
-  schedules ClassSchedule[]
-  grades    Grade[]
+  user             User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  schedules        ClassSchedule[]
+  grades           Grade[]
+  gradeSubmissions GradeSubmission[]
 
   @@index([lastName, firstName])
   @@map("instructors")
@@ -513,6 +598,7 @@ model Enrollment {
   assessments   TuitionAssessment[]
   payments      Payment[]
   extraSubjects EnrollmentSubject[]
+  attendance    AttendanceRecord[]
 
   // Business rule: one enrollment record per student per term.
   @@unique([studentId, semesterId])
@@ -569,6 +655,56 @@ model Grade {
   @@index([status])
   @@index([updatedAt])
   @@map("grades")
+}
+
+/// A teacher's "Submit for review" of one class (term + section + subject).
+/// One row per class; it moves SUBMITTED -> RETURNED (with a note) or PUBLISHED.
+model GradeSubmission {
+  id            Int                   @id @default(autoincrement())
+  semesterId    Int                   @map("semester_id")
+  sectionId     Int                   @map("section_id")
+  subjectId     Int                   @map("subject_id")
+  instructorId  Int?                  @map("instructor_id")
+  status        GradeSubmissionStatus @default(SUBMITTED)
+  submittedById Int                   @map("submitted_by_id")
+  submittedAt   DateTime              @default(now()) @map("submitted_at")
+  reviewedById  Int?                  @map("reviewed_by_id")
+  reviewedAt    DateTime?             @map("reviewed_at")
+  /// Why staff returned it (shown to the teacher).
+  note          String?               @db.VarChar(500)
+
+  semester    Semester    @relation(fields: [semesterId], references: [id])
+  section     Section     @relation(fields: [sectionId], references: [id])
+  subject     Subject     @relation(fields: [subjectId], references: [id])
+  instructor  Instructor? @relation(fields: [instructorId], references: [id], onDelete: SetNull)
+  submittedBy User        @relation("GradeSubmissionSentBy", fields: [submittedById], references: [id])
+  reviewedBy  User?       @relation("GradeSubmissionReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([semesterId, sectionId, subjectId])
+  @@index([status])
+  @@map("grade_submissions")
+}
+
+/// One student's attendance at one class meeting (class = section + subject, on a date).
+model AttendanceRecord {
+  id           Int              @id @default(autoincrement())
+  enrollmentId Int              @map("enrollment_id")
+  subjectId    Int              @map("subject_id")
+  /// The class's section (irregular students may belong to another section).
+  sectionId    Int              @map("section_id")
+  date         DateTime         @db.Date
+  status       AttendanceStatus
+  recordedById Int              @map("recorded_by_id")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  subject    Subject    @relation(fields: [subjectId], references: [id])
+  section    Section    @relation(fields: [sectionId], references: [id])
+  recordedBy User       @relation("AttendanceRecordedBy", fields: [recordedById], references: [id])
+
+  @@unique([enrollmentId, subjectId, date])
+  @@index([sectionId, subjectId, date])
+  @@map("attendance_records")
 }
 
 // The school's tuition fee options per program and year level, e.g.
@@ -704,6 +840,7 @@ model Announcement {
   title          String               @db.VarChar(200)
   content        String               @db.Text
   audience       AnnouncementAudience @default(PUBLIC)
+  category       AnnouncementCategory @default(GENERAL)
   status         AnnouncementStatus   @default(DRAFT)
   publishDate    DateTime             @map("publish_date")
   expirationDate DateTime?            @map("expiration_date")

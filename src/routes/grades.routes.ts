@@ -17,6 +17,9 @@ router.get("/roster", canRead, grades.roster);
 router.post("/", canWrite, grades.create);
 router.post("/bulk", canWrite, grades.saveClass);
 router.post("/publish", canPublish, grades.publishClass);
+// Teachers' "Submit for review": classes waiting for staff, and sending one back.
+router.get("/submissions/pending", canPublish, grades.pendingSubmissions);
+router.post("/return", canPublish, grades.returnClass);
 router.put("/:id", canWrite, grades.update);
 router.get("/:id/history", canRead, grades.history);
 router.post("/:id/publish", canPublish, grades.publish);

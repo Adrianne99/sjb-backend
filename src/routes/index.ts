@@ -1,6 +1,7 @@
 // Mounts every module under /api.
 import { Router } from "express";
 import academicRoutes from "./academic.routes";
+import accountRoutes from "./account.routes";
 import announcementRoutes from "./announcements.routes";
 import applicationRoutes from "./applications.routes";
 import auditRoutes from "./audit.routes";
@@ -16,6 +17,7 @@ import requirementRoutes from "./requirements.routes";
 import scheduleRoutes from "./schedules.routes";
 import settingsRoutes from "./settings.routes";
 import studentRoutes from "./students.routes";
+import teachingRoutes from "./teaching.routes";
 import userRoutes from "./users.routes";
 
 export function createApiRouter(options: { loginRateLimit?: number } = {}) {
@@ -23,6 +25,7 @@ export function createApiRouter(options: { loginRateLimit?: number } = {}) {
 
   router.use("/auth", createAuthRoutes(options));
   router.use("/me", meRoutes);
+  router.use("/account", accountRoutes);
   router.use("/students", studentRoutes);
   router.use("/enrollments", enrollmentRoutes);
   router.use("/grades", gradeRoutes);
@@ -38,6 +41,7 @@ export function createApiRouter(options: { loginRateLimit?: number } = {}) {
   router.use("/settings", settingsRoutes);
   router.use("/reports", reportRoutes);
   router.use("/chatbot", chatbotRoutes);
+  router.use("/teaching", teachingRoutes);
 
   return router;
 }
